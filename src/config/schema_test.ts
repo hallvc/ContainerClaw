@@ -5,6 +5,7 @@ import {
   OpenRouterConfigSchema,
   RESTRICT_TO_WORKSPACE,
   SlackConfigSchema,
+  ToolsConfigSchema,
 } from "./schema.ts";
 
 Deno.test("ConfigSchema - parses with defaults", () => {
@@ -70,4 +71,19 @@ Deno.test("ConfigSchema - Docker-friendly defaults", () => {
   const config = ConfigSchema.parse({});
   assertEquals(config.workspace, "/workspace");
   assertEquals(config.data_dir, "/data");
+});
+
+Deno.test("ToolsConfigSchema - defaults", () => {
+  const tools = ToolsConfigSchema.parse({});
+  assertEquals(tools.exec_timeout_ms, 60_000);
+});
+
+Deno.test("ConfigSchema - tools defaults", () => {
+  const config = ConfigSchema.parse({});
+  assertEquals(config.tools.exec_timeout_ms, 60_000);
+});
+
+Deno.test("ConfigSchema - custom tools exec_timeout_ms", () => {
+  const config = ConfigSchema.parse({ tools: { exec_timeout_ms: 120_000 } });
+  assertEquals(config.tools.exec_timeout_ms, 120_000);
 });

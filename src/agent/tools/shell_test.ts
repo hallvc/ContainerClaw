@@ -92,3 +92,24 @@ Deno.test("ExecTool - workspace cwd enforcement", async () => {
   const result = await tool.execute({ command: "pwd" });
   assertStringIncludes(result, workspace);
 });
+
+Deno.test("ExecTool - default timeout is 60s", async () => {
+  const tool = new ExecTool(workspace);
+  // A fast command should succeed with the default 60s timeout
+  const result = await tool.execute({ command: "echo ok" });
+  assertStringIncludes(result, "ok");
+});
+
+Deno.test("ExecTool - custom timeout via constructor", async () => {
+  const tool = new ExecTool(workspace, 5_000);
+  // A fast command should succeed within custom 5s timeout
+  const result = await tool.execute({ command: "echo custom" });
+  assertStringIncludes(result, "custom");
+});
+
+Deno.test("ExecTool - per-call timeout_ms overrides constructor default", async () => {
+  const tool = new ExecTool(workspace, 1_000);
+  // Per-call timeout should override the constructor default
+  const result = await tool.execute({ command: "echo override", timeout_ms: 5_000 });
+  assertStringIncludes(result, "override");
+});

@@ -45,7 +45,7 @@ export class AgentLoop {
     this.tools.register(new WriteFileTool(workspace));
     this.tools.register(new EditFileTool(workspace));
     this.tools.register(new ListDirTool(workspace));
-    this.tools.register(new ExecTool(workspace));
+    this.tools.register(new ExecTool(workspace, this.config.tools.exec_timeout_ms));
     this.tools.register(new MessageTool((msg) => this.bus.publishOutbound(msg)));
 
     if (this.config.web_search.brave_api_key) {

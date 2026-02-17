@@ -26,13 +26,13 @@ export class ExecTool implements Tool {
       command: { type: "string", description: "Shell command to execute." },
       timeout_ms: {
         type: "number",
-        description: "Timeout in milliseconds (default 30000).",
+        description: "Timeout in milliseconds (default from config).",
       },
     },
     required: ["command"],
   };
 
-  constructor(private workspace: string) {}
+  constructor(private workspace: string, private defaultTimeoutMs = 60_000) {}
 
   private guardCommand(command: string): string | null {
     for (const pattern of DENY_PATTERNS) {
@@ -50,7 +50,7 @@ export class ExecTool implements Tool {
 
     const timeoutMs = typeof args.timeout_ms === "number"
       ? args.timeout_ms
-      : 30_000;
+      : this.defaultTimeoutMs;
 
     const cmd = new Deno.Command("sh", {
       args: ["-c", command],

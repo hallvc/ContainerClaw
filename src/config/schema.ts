@@ -50,6 +50,10 @@ export const EmailConfigSchema = z.object({
   allow_from: z.array(z.string()).default([]),
 });
 
+export const ToolsConfigSchema = z.object({
+  exec_timeout_ms: z.number().int().positive().default(60_000),
+});
+
 export const WebSearchConfigSchema = z.object({
   brave_api_key: z.string().optional(),
 });
@@ -60,6 +64,7 @@ export const ConfigSchema = z.object({
   telegram: TelegramConfigSchema.default({}),
   openrouter: OpenRouterConfigSchema.default({}),
   agents: AgentsConfigSchema.default({}),
+  tools: ToolsConfigSchema.default({}),
   web_search: WebSearchConfigSchema.default({}),
   workspace: z.string().default("/workspace"),
   data_dir: z.string().default("/data"),
@@ -71,6 +76,7 @@ export type EmailConfig = z.infer<typeof EmailConfigSchema>;
 export type TelegramConfig = z.infer<typeof TelegramConfigSchema>;
 export type OpenRouterConfig = z.infer<typeof OpenRouterConfigSchema>;
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
+export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
 export type WebSearchConfig = z.infer<typeof WebSearchConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 
