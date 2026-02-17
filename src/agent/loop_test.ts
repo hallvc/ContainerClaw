@@ -19,11 +19,22 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     },
     openrouter: { api_key: "", default_model: "anthropic/claude-sonnet-4-5" },
     agents: {
+      models: {},
       temperature: 0.7,
       max_tokens: 1000,
       memory_window: 10,
       max_iterations: 5,
     },
+    email: {
+      api_key: "",
+      inbox_id: "",
+      username: "",
+      domain: "",
+      poll_interval_seconds: 15,
+      policy: "open",
+      allow_from: [],
+    },
+    telegram: { bot_token: "", allow_from: [] },
     web_search: {},
     workspace: "/tmp/test-workspace",
     data_dir: "/tmp/test-data",
@@ -220,7 +231,7 @@ Deno.test("AgentLoop - processDirect stops at maxIterations with fallback messag
     const config = makeConfig({
       data_dir: tmpDir,
       workspace: tmpDir,
-      agents: { temperature: 0.7, max_tokens: 1000, memory_window: 10, max_iterations: 2 },
+      agents: { models: {}, temperature: 0.7, max_tokens: 1000, memory_window: 10, max_iterations: 2 },
     });
     // Always returns tool calls so we never finish naturally
     const toolCallResponse: FakeResponse = {
@@ -441,7 +452,7 @@ Deno.test("AgentLoop - memory consolidation triggers when message count exceeds 
     const config = makeConfig({
       data_dir: tmpDir,
       workspace: tmpDir,
-      agents: { temperature: 0.7, max_tokens: 1000, memory_window: 2, max_iterations: 5 },
+      agents: { models: {}, temperature: 0.7, max_tokens: 1000, memory_window: 2, max_iterations: 5 },
     });
 
     let consolidationCalled = false;
@@ -491,7 +502,7 @@ Deno.test("AgentLoop - memory consolidation handles provider errors gracefully",
     const config = makeConfig({
       data_dir: tmpDir,
       workspace: tmpDir,
-      agents: { temperature: 0.7, max_tokens: 1000, memory_window: 2, max_iterations: 5 },
+      agents: { models: {}, temperature: 0.7, max_tokens: 1000, memory_window: 2, max_iterations: 5 },
     });
 
     let callCount = 0;

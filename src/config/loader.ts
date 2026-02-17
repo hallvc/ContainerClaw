@@ -82,6 +82,15 @@ export function buildRawConfig(
         policy: env.AGENTMAIL_POLICY,
       }),
     },
+    telegram: {
+      ...((fileConfig.telegram as Record<string, unknown>) ?? {}),
+      ...defined({
+        bot_token: env.TELEGRAM_BOT_TOKEN,
+        allow_from: env.TELEGRAM_ALLOW_FROM
+          ? env.TELEGRAM_ALLOW_FROM.split(",").filter(Boolean)
+          : undefined,
+      }),
+    },
     web_search: {
       ...((fileConfig.web_search as Record<string, unknown>) ?? {}),
       ...defined({
@@ -107,6 +116,8 @@ export async function loadConfig(): Promise<Config> {
     SLACK_APP_TOKEN: Deno.env.get("SLACK_APP_TOKEN"),
     SLACK_GROUP_POLICY: Deno.env.get("SLACK_GROUP_POLICY"),
     OPENROUTER_API_KEY: Deno.env.get("OPENROUTER_API_KEY"),
+    TELEGRAM_BOT_TOKEN: Deno.env.get("TELEGRAM_BOT_TOKEN"),
+    TELEGRAM_ALLOW_FROM: Deno.env.get("TELEGRAM_ALLOW_FROM"),
     BRAVE_API_KEY: Deno.env.get("BRAVE_API_KEY"),
     AGENTMAIL_API_KEY: Deno.env.get("AGENTMAIL_API_KEY"),
     AGENTMAIL_INBOX_ID: Deno.env.get("AGENTMAIL_INBOX_ID"),

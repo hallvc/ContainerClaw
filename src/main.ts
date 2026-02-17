@@ -5,6 +5,7 @@ import { OpenRouterProvider } from "./providers/openrouter.ts";
 import { AgentLoop } from "./agent/loop.ts";
 import { SlackChannel } from "./channels/slack.ts";
 import { EmailChannel } from "./channels/email.ts";
+import { TelegramChannel } from "./channels/telegram.ts";
 import { ChannelManager } from "./channels/manager.ts";
 import { CronService } from "./cron/service.ts";
 
@@ -22,9 +23,12 @@ async function main(): Promise<void> {
   // Validate at least one channel is configured
   const hasSlack = !!(config.slack.bot_token && config.slack.app_token);
   const hasEmail = !!config.email.api_key;
+  const hasTelegram = !!config.telegram.bot_token;
 
-  if (!hasSlack && !hasEmail) {
-    console.error("At least one channel must be configured (Slack or Email)");
+  if (!hasSlack && !hasEmail && !hasTelegram) {
+    console.error(
+      "At least one channel must be configured (Slack, Email, or Telegram)",
+    );
     Deno.exit(1);
   }
 
@@ -71,6 +75,11 @@ async function main(): Promise<void> {
       bus,
     );
     channelManager.addChannel(emailChannel);
+  }
+
+  if (hasTelegram) {
+    const telegramChannel = new TelegramChannel(config.telegram, bus);
+    channelManager.addChannel(telegramChannel);
   }
 
   // Create cron service

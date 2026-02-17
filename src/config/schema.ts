@@ -14,6 +14,11 @@ export const SlackConfigSchema = z.object({
   dm: SlackDMConfigSchema.default({}),
 });
 
+export const TelegramConfigSchema = z.object({
+  bot_token: z.string().default(""),
+  allow_from: z.array(z.string()).default([]),
+});
+
 export const OpenRouterConfigSchema = z.object({
   api_key: z.string().default(""),
   default_model: z.string().default("minimax/minimax-m2.5"),
@@ -52,6 +57,7 @@ export const WebSearchConfigSchema = z.object({
 export const ConfigSchema = z.object({
   slack: SlackConfigSchema.default({}),
   email: EmailConfigSchema.default({}),
+  telegram: TelegramConfigSchema.default({}),
   openrouter: OpenRouterConfigSchema.default({}),
   agents: AgentsConfigSchema.default({}),
   web_search: WebSearchConfigSchema.default({}),
@@ -62,6 +68,7 @@ export const ConfigSchema = z.object({
 export type SlackDMConfig = z.infer<typeof SlackDMConfigSchema>;
 export type SlackConfig = z.infer<typeof SlackConfigSchema>;
 export type EmailConfig = z.infer<typeof EmailConfigSchema>;
+export type TelegramConfig = z.infer<typeof TelegramConfigSchema>;
 export type OpenRouterConfig = z.infer<typeof OpenRouterConfigSchema>;
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
 export type WebSearchConfig = z.infer<typeof WebSearchConfigSchema>;
