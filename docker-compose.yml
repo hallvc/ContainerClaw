@@ -1,0 +1,26 @@
+services:
+  nanobot:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Required: OpenRouter API key for LLM access
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      # Required: Slack bot token (xoxb-...)
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      # Required: Slack app-level token (xapp-...)
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
+      # Optional: Default model (defaults to anthropic/claude-sonnet-4-5)
+      - NANOBOT_MODEL=${NANOBOT_MODEL:-anthropic/claude-sonnet-4-5}
+      # Optional: Brave Search API key for web_search tool
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
+      # Optional: Slack group policy (mention|open|allowlist, defaults to mention)
+      - SLACK_GROUP_POLICY=${SLACK_GROUP_POLICY:-mention}
+    volumes:
+      # Persistent data: sessions, memory, cron jobs
+      - nanobot-data:/data
+      # Workspace for the agent to operate in
+      - nanobot-workspace:/workspace
+
+volumes:
+  nanobot-data:
+  nanobot-workspace:

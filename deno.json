@@ -1,0 +1,25 @@
+{
+  "imports": {
+    "@slack/web-api": "npm:@slack/web-api@7",
+    "@slack/socket-mode": "npm:@slack/socket-mode@2",
+    "@mozilla/readability": "npm:@mozilla/readability@0.5",
+    "linkedom": "npm:linkedom@0.18",
+    "zod": "npm:zod@3",
+    "cron-parser": "npm:cron-parser@4",
+    "slackify-markdown": "npm:slackify-markdown@4",
+    "@std/path": "jsr:@std/path@^1",
+    "@std/fs": "jsr:@std/fs@^1",
+    "@std/assert": "jsr:@std/assert@^1"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": false
+  },
+  "tasks": {
+    "start": "deno run --allow-all src/main.ts",
+    "dev": "deno run --watch --allow-all src/main.ts",
+    "test": "deno test --allow-all src/",
+    "lint": "deno lint src/",
+    "fmt": "deno fmt src/"
+  }
+}
