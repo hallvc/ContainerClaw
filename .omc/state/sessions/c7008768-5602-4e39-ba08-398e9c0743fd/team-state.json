@@ -1,8 +1,0 @@
-{
-  "active": true,
-  "started_at": "2026-02-17T04:51:58.331Z",
-  "original_prompt": "great, can you merge this back into main? I am getting\n\nGit operation failed: Invalid repository: CLI merge failed: git command failed: --- stderr error: The following untracked working tree files would be overwritten by merge: .omc/project-memory.json Please move or remove them before you merge. Aborting --- stdout Updating a219a91..0a793b3When working on tasks, prefer oh-my-claudecode orchestration modes:\n- For complex multi-step tasks: use /oh-my-claudecode:team or /oh-my-claudecode:autopilot\n- For planning: use /oh-my-claudecode:plan instead of basic planning\n- For code review: use /oh-my-claudecode:code-review\n- For build errors: use /oh-my-claudecode:build-fix\n- For thorough search: use /oh-my-claudecode:deepsearch\n- For git operations: use /oh-my-claudecode:git-master\n- For UI/UX work: use /oh-my-claudecode:frontend-ui-ux\n- For TDD: use /oh-my-claudecode:tdd\n- For security audits: use /oh-my-claudecode:security-review\n\nUse the oh-my-claudecode specialized agents (e.g., oh-my-claudecode:architect, oh-my-claudecode:executor, oh-my-claudecode:verifier) when spawning subagents via the Task tool, rather than generic agent types.",
-  "session_id": "c7008768-5602-4e39-ba08-398e9c0743fd",
-  "reinforcement_count": 0,
-  "last_checked_at": "2026-02-17T04:51:58.332Z"
-}

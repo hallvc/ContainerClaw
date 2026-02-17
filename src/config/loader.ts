@@ -21,40 +21,73 @@ async function readFileConfig(path: string): Promise<Record<string, unknown>> {
   }
 }
 
-export async function loadConfig(): Promise<Config> {
-  const fileConfig = await readFileConfig("/data/config.json");
+function defined(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) result[k] = v;
+  }
+  return result;
+}
 
-  const model = Deno.env.get("NANOBOT_MODEL");
-
-  const raw = {
-    workspace: Deno.env.get("NANOBOT_WORKSPACE") ?? (fileConfig.workspace as string | undefined),
-    data_dir: Deno.env.get("NANOBOT_DATA_DIR") ?? (fileConfig.data_dir as string | undefined),
+export function buildRawConfig(
+  env: Record<string, string | undefined>,
+  fileConfig: Record<string, unknown>,
+): Record<string, unknown> {
+  const model = env.NANOBOT_MODEL;
+  return {
+    workspace: env.NANOBOT_WORKSPACE ?? (fileConfig.workspace as string | undefined),
+    data_dir: env.NANOBOT_DATA_DIR ?? (fileConfig.data_dir as string | undefined),
     slack: {
-      bot_token: Deno.env.get("SLACK_BOT_TOKEN"),
-      app_token: Deno.env.get("SLACK_APP_TOKEN"),
-      group_policy: Deno.env.get("SLACK_GROUP_POLICY"),
-      ...((fileConfig.slack as Record<string, unknown> | undefined) ?? {}),
+      ...((fileConfig.slack as Record<string, unknown>) ?? {}),
+      ...defined({
+        bot_token: env.SLACK_BOT_TOKEN,
+        app_token: env.SLACK_APP_TOKEN,
+        group_policy: env.SLACK_GROUP_POLICY,
+      }),
     },
     openrouter: {
-      api_key: Deno.env.get("OPENROUTER_API_KEY"),
-      default_model: model,
-      ...((fileConfig.openrouter as Record<string, unknown> | undefined) ?? {}),
+      ...((fileConfig.openrouter as Record<string, unknown>) ?? {}),
+      ...defined({
+        api_key: env.OPENROUTER_API_KEY,
+        default_model: model,
+      }),
     },
     agents: {
-      model,
-      temperature: parseOptionalFloat(Deno.env.get("NANOBOT_TEMPERATURE")),
-      max_tokens: parseOptionalInt(Deno.env.get("NANOBOT_MAX_TOKENS")),
-      memory_window: parseOptionalInt(Deno.env.get("NANOBOT_MEMORY_WINDOW")),
-      ...((fileConfig.agents as Record<string, unknown> | undefined) ?? {}),
+      ...((fileConfig.agents as Record<string, unknown>) ?? {}),
+      ...defined({
+        model,
+        temperature: parseOptionalFloat(env.NANOBOT_TEMPERATURE),
+        max_tokens: parseOptionalInt(env.NANOBOT_MAX_TOKENS),
+        memory_window: parseOptionalInt(env.NANOBOT_MEMORY_WINDOW),
+        max_iterations: parseOptionalInt(env.NANOBOT_MAX_ITERATIONS),
+      }),
     },
     web_search: {
-      brave_api_key: Deno.env.get("BRAVE_API_KEY"),
-      ...((fileConfig.web_search as Record<string, unknown> | undefined) ?? {}),
+      ...((fileConfig.web_search as Record<string, unknown>) ?? {}),
+      ...defined({
+        brave_api_key: env.BRAVE_API_KEY,
+      }),
     },
   };
+}
 
-  // Strip undefined values so Zod defaults apply
-  const clean = JSON.parse(JSON.stringify(raw, (_k, v) => v === undefined ? undefined : v));
-
+export async function loadConfig(): Promise<Config> {
+  const fileConfig = await readFileConfig("/data/config.json");
+  const env: Record<string, string | undefined> = {
+    NANOBOT_MODEL: Deno.env.get("NANOBOT_MODEL"),
+    NANOBOT_WORKSPACE: Deno.env.get("NANOBOT_WORKSPACE"),
+    NANOBOT_DATA_DIR: Deno.env.get("NANOBOT_DATA_DIR"),
+    NANOBOT_TEMPERATURE: Deno.env.get("NANOBOT_TEMPERATURE"),
+    NANOBOT_MAX_TOKENS: Deno.env.get("NANOBOT_MAX_TOKENS"),
+    NANOBOT_MEMORY_WINDOW: Deno.env.get("NANOBOT_MEMORY_WINDOW"),
+    NANOBOT_MAX_ITERATIONS: Deno.env.get("NANOBOT_MAX_ITERATIONS"),
+    SLACK_BOT_TOKEN: Deno.env.get("SLACK_BOT_TOKEN"),
+    SLACK_APP_TOKEN: Deno.env.get("SLACK_APP_TOKEN"),
+    SLACK_GROUP_POLICY: Deno.env.get("SLACK_GROUP_POLICY"),
+    OPENROUTER_API_KEY: Deno.env.get("OPENROUTER_API_KEY"),
+    BRAVE_API_KEY: Deno.env.get("BRAVE_API_KEY"),
+  };
+  const raw = buildRawConfig(env, fileConfig);
+  const clean = JSON.parse(JSON.stringify(raw));
   return ConfigSchema.parse(clean);
 }

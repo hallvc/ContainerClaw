@@ -46,3 +46,6 @@ export type OpenRouterConfig = z.infer<typeof OpenRouterConfigSchema>;
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
 export type WebSearchConfig = z.infer<typeof WebSearchConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
+
+/** Workspace confinement is always enforced — not configurable. */
+export const RESTRICT_TO_WORKSPACE = true as const;

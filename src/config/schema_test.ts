@@ -1,5 +1,11 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { ConfigSchema } from "./schema.ts";
+import {
+  AgentsConfigSchema,
+  ConfigSchema,
+  OpenRouterConfigSchema,
+  RESTRICT_TO_WORKSPACE,
+  SlackConfigSchema,
+} from "./schema.ts";
 
 Deno.test("ConfigSchema - parses with defaults", () => {
   const config = ConfigSchema.parse({});
@@ -26,4 +32,40 @@ Deno.test("ConfigSchema - rejects invalid temperature", () => {
   assertThrows(() => {
     ConfigSchema.parse({ agents: { temperature: 5.0 } });
   });
+});
+
+Deno.test("RESTRICT_TO_WORKSPACE - is hardcoded true", () => {
+  assertEquals(RESTRICT_TO_WORKSPACE, true);
+});
+
+Deno.test("SlackConfigSchema - defaults match Python reference", () => {
+  const slack = SlackConfigSchema.parse({});
+  assertEquals(slack.bot_token, "");
+  assertEquals(slack.app_token, "");
+  assertEquals(slack.group_policy, "mention");
+  assertEquals(slack.group_allow_from, []);
+  assertEquals(slack.dm.enabled, true);
+  assertEquals(slack.dm.policy, "open");
+  assertEquals(slack.dm.allow_from, []);
+});
+
+Deno.test("AgentsConfigSchema - defaults match Python reference", () => {
+  const agents = AgentsConfigSchema.parse({});
+  assertEquals(agents.temperature, 0.7);
+  assertEquals(agents.max_tokens, 4096);
+  assertEquals(agents.memory_window, 50);
+  assertEquals(agents.max_iterations, 20);
+  assertEquals(agents.model, undefined);
+});
+
+Deno.test("OpenRouterConfigSchema - defaults", () => {
+  const or_ = OpenRouterConfigSchema.parse({});
+  assertEquals(or_.api_key, "");
+  assertEquals(or_.default_model, "anthropic/claude-sonnet-4-5");
+});
+
+Deno.test("ConfigSchema - Docker-friendly defaults", () => {
+  const config = ConfigSchema.parse({});
+  assertEquals(config.workspace, "/workspace");
+  assertEquals(config.data_dir, "/data");
 });
