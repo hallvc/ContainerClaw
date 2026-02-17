@@ -7,6 +7,8 @@ import { ReadFileTool, WriteFileTool, EditFileTool, ListDirTool } from "./tools/
 import { ExecTool } from "./tools/shell.ts";
 import { WebSearchTool, WebFetchTool } from "./tools/web.ts";
 import { MessageTool } from "./tools/message.ts";
+import { CronTool } from "./tools/cron.ts";
+import type { CronService } from "../cron/service.ts";
 import { SessionManager } from "../session/manager.ts";
 import type { Session } from "../session/manager.ts";
 import { MemoryStore } from "./memory.ts";
@@ -21,16 +23,19 @@ export class AgentLoop {
   private sessions: SessionManager;
   private memory: MemoryStore;
   private config: Config;
+  private cronService?: CronService;
   private _running = false;
 
   constructor(
     bus: MessageBus,
     provider: LLMProvider,
     config: Config,
+    cronService?: CronService,
   ) {
     this.bus = bus;
     this.provider = provider;
     this.config = config;
+    this.cronService = cronService;
     this.sessions = new SessionManager(config.data_dir);
     this.memory = new MemoryStore(config.data_dir);
     this.tools = new ToolRegistry();
@@ -48,10 +53,25 @@ export class AgentLoop {
     this.tools.register(new ExecTool(workspace, this.config.tools.exec_timeout_ms));
     this.tools.register(new MessageTool((msg) => this.bus.publishOutbound(msg)));
 
+    if (this.cronService) {
+      this.tools.register(new CronTool(this.cronService));
+    }
+
     if (this.config.web_search.brave_api_key) {
       this.tools.register(new WebSearchTool(this.config.web_search.brave_api_key));
     }
     this.tools.register(new WebFetchTool());
+  }
+
+  private setToolContext(channel: string, chatId: string): void {
+    const msgTool = this.tools.get("message");
+    if (msgTool && "setContext" in msgTool) {
+      (msgTool as MessageTool).setContext(channel, chatId);
+    }
+    const cronTool = this.tools.get("cron");
+    if (cronTool && "setContext" in cronTool) {
+      (cronTool as CronTool).setContext(channel, chatId);
+    }
   }
 
   async run(): Promise<void> {
@@ -75,6 +95,7 @@ export class AgentLoop {
   }
 
   private async processMessage(msg: InboundMessage): Promise<void> {
+    this.setToolContext(msg.channel, msg.chatId);
     const sessionKey = getSessionKey(msg);
     const session = this.sessions.getOrCreate(sessionKey);
 

@@ -38,7 +38,8 @@ async function main(): Promise<void> {
     config.openrouter.api_key,
     config.openrouter.default_model,
   );
-  const agent = new AgentLoop(bus, provider, config);
+  const cron = new CronService(config.data_dir);
+  const agent = new AgentLoop(bus, provider, config, cron);
 
   const channelManager = new ChannelManager(bus);
 
@@ -82,8 +83,7 @@ async function main(): Promise<void> {
     channelManager.addChannel(telegramChannel);
   }
 
-  // Create cron service
-  const cron = new CronService(config.data_dir);
+  // Configure cron callback
   cron.setCallback(async (job) => {
     console.log(`Cron executing: ${job.name}`);
     try {
