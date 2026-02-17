@@ -1,5 +1,6 @@
 import { join } from "@std/path";
 import type { MemoryStore } from "./memory.ts";
+import type { SkillsLoader } from "./skills.ts";
 import type { ToolCallRequest } from "../providers/base.ts";
 
 interface ChatMessage {
@@ -19,11 +20,13 @@ const BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTIT
 export class ContextBuilder {
   private workspace: string;
   private memory: MemoryStore;
+  private skills: SkillsLoader | null;
   private messages: ChatMessage[] = [];
 
-  constructor(workspace: string, memory: MemoryStore) {
+  constructor(workspace: string, memory: MemoryStore, skills?: SkillsLoader) {
     this.workspace = workspace;
     this.memory = memory;
+    this.skills = skills ?? null;
   }
 
   private async loadBootstrapFiles(): Promise<string> {
@@ -87,6 +90,18 @@ export class ContextBuilder {
     const memoryContext = await this.memory.getMemoryContext();
     if (memoryContext) {
       parts.push(memoryContext);
+    }
+
+    if (this.skills) {
+      const alwaysSkills = await this.skills.getAlwaysSkills();
+      if (alwaysSkills.length > 0) {
+        const alwaysContent = await this.skills.loadSkillsForContext(alwaysSkills);
+        parts.push(alwaysContent);
+      }
+      const summary = await this.skills.buildSkillsSummary();
+      if (summary) {
+        parts.push(`## Available Skills\n\n${summary}`);
+      }
     }
 
     parts.push(`Current date: ${new Date().toISOString().split("T")[0]}`);

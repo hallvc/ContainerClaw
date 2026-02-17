@@ -12,6 +12,7 @@ import type { CronService } from "../cron/service.ts";
 import { SessionManager } from "../session/manager.ts";
 import type { Session } from "../session/manager.ts";
 import { MemoryStore } from "./memory.ts";
+import { SkillsLoader } from "./skills.ts";
 import { ContextBuilder } from "./context.ts";
 import type { Config } from "../config/schema.ts";
 import { resolveModel } from "../config/models.ts";
@@ -22,6 +23,7 @@ export class AgentLoop {
   private tools: ToolRegistry;
   private sessions: SessionManager;
   private memory: MemoryStore;
+  private skills: SkillsLoader;
   private config: Config;
   private cronService?: CronService;
   private _running = false;
@@ -38,6 +40,7 @@ export class AgentLoop {
     this.cronService = cronService;
     this.sessions = new SessionManager(config.data_dir);
     this.memory = new MemoryStore(config.data_dir);
+    this.skills = new SkillsLoader(config.workspace);
     this.tools = new ToolRegistry();
 
     this.registerTools();
@@ -76,6 +79,9 @@ export class AgentLoop {
 
   async run(): Promise<void> {
     this._running = true;
+    await this.skills.seedDefaultSkills().catch((e) =>
+      console.error("Skill seeding error:", e)
+    );
     console.log("Agent loop started");
 
     while (this._running) {
@@ -128,7 +134,7 @@ export class AgentLoop {
     session.addMessage("user", msg.content);
 
     // Build context
-    const context = new ContextBuilder(this.config.workspace, this.memory);
+    const context = new ContextBuilder(this.config.workspace, this.memory, this.skills);
     const history = session.getHistory(this.config.agents.memory_window);
     // Remove the last message from history since we'll add it as the current message
     const pastHistory = history.slice(0, -1);
@@ -256,7 +262,7 @@ Write an updated MEMORY.md that preserves important existing facts and adds any 
     chatId: string,
     content: string,
   ): Promise<string> {
-    const context = new ContextBuilder(this.config.workspace, this.memory);
+    const context = new ContextBuilder(this.config.workspace, this.memory, this.skills);
     const messages = await context.buildMessages([], content, []);
     return await this.runAgentLoop(context, messages);
   }
