@@ -100,10 +100,16 @@ export class TelegramChannel extends BaseChannel {
   private config: TelegramConfig;
   private _bot: Bot | null = null;
   private _typingControllers = new Map<string, AbortController>();
+  private transcriber?: (audioUrl: string) => Promise<string>;
 
-  constructor(config: TelegramConfig, bus: MessageBus) {
+  constructor(
+    config: TelegramConfig,
+    bus: MessageBus,
+    transcriber?: (audioUrl: string) => Promise<string>,
+  ) {
     super(bus);
     this.config = config;
+    this.transcriber = transcriber;
   }
 
   async start(): Promise<void> {
@@ -252,8 +258,16 @@ export class TelegramChannel extends BaseChannel {
         const file = await ctx.api.getFile(ctx.message.voice.file_id);
         if (file.file_path) {
           const url = `https://api.telegram.org/file/bot${this.config.bot_token}/${file.file_path}`;
-          contentParts.push(`[voice: ${url}]`);
-          mediaPaths.push(url);
+          let text = "";
+          if (this.transcriber) {
+            text = await this.transcriber(url);
+          }
+          if (text) {
+            contentParts.push(text);
+          } else {
+            contentParts.push(`[voice: ${url}]`);
+            mediaPaths.push(url);
+          }
         }
       } catch (e) {
         console.error(`Failed to get voice: ${e}`);
@@ -264,8 +278,16 @@ export class TelegramChannel extends BaseChannel {
         const file = await ctx.api.getFile(ctx.message.audio.file_id);
         if (file.file_path) {
           const url = `https://api.telegram.org/file/bot${this.config.bot_token}/${file.file_path}`;
-          contentParts.push(`[audio: ${url}]`);
-          mediaPaths.push(url);
+          let text = "";
+          if (this.transcriber) {
+            text = await this.transcriber(url);
+          }
+          if (text) {
+            contentParts.push(text);
+          } else {
+            contentParts.push(`[audio: ${url}]`);
+            mediaPaths.push(url);
+          }
         }
       } catch (e) {
         console.error(`Failed to get audio: ${e}`);

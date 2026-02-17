@@ -7,6 +7,7 @@ import { SlackChannel } from "../../channels/slack.ts";
 import { EmailChannel } from "../../channels/email.ts";
 import { TelegramChannel } from "../../channels/telegram.ts";
 import { ChannelManager } from "../../channels/manager.ts";
+import { transcribe } from "../../providers/transcription.ts";
 import { CronService } from "../../cron/service.ts";
 import { HeartbeatService } from "../../heartbeat/service.ts";
 import type { Config } from "../../config/schema.ts";
@@ -96,7 +97,15 @@ export async function runGateway(): Promise<void> {
   }
 
   if (channels.hasTelegram) {
-    const telegramChannel = new TelegramChannel(config.telegram, bus);
+    const orKey = config.openrouter.api_key;
+    const transcriber = orKey
+      ? (url: string) => transcribe(url, orKey)
+      : undefined;
+    const telegramChannel = new TelegramChannel(
+      config.telegram,
+      bus,
+      transcriber,
+    );
     channelManager.addChannel(telegramChannel);
   }
 

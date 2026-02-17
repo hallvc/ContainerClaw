@@ -318,3 +318,102 @@ Deno.test("TelegramChannel - name is 'telegram'", () => {
   const channel = new TelegramChannel(makeConfig(), bus);
   assertEquals(channel.name, "telegram");
 });
+
+// ---------------------------------------------------------------------------
+// Voice transcription integration
+// ---------------------------------------------------------------------------
+
+Deno.test("TelegramChannel - constructor accepts optional transcriber", () => {
+  const bus = new MessageBus();
+  const transcriber = async (_url: string) => "transcribed text";
+  const channel = new TelegramChannel(makeConfig(), bus, transcriber);
+  assertEquals(channel.name, "telegram");
+});
+
+Deno.test("TelegramChannel - voice message uses transcriber when provided", async () => {
+  const bus = new MessageBus();
+  const transcriber = async (_url: string) => "hello from voice";
+  const channel = new TelegramChannel(makeConfig(), bus, transcriber);
+
+  const published: any[] = [];
+  (channel as any).bus = {
+    publishInbound: async (msg: any) => { published.push(msg); },
+  };
+
+  // Simulate onMessage with a voice message context
+  const fakeCtx = {
+    from: { id: 123, username: "alice" },
+    chat: { id: 456, type: "private" },
+    message: {
+      voice: { file_id: "voice123" },
+    },
+    api: {
+      getFile: async (_id: string) => ({ file_path: "voice/file_0.oga" }),
+    },
+  };
+
+  await (channel as any).onMessage(fakeCtx);
+
+  assertEquals(published.length, 1);
+  assertEquals(published[0].content, "hello from voice");
+  assertEquals(published[0].media.length, 0);
+});
+
+Deno.test("TelegramChannel - voice message falls back to URL without transcriber", async () => {
+  const bus = new MessageBus();
+  const channel = new TelegramChannel(makeConfig(), bus);
+
+  const published: any[] = [];
+  (channel as any).bus = {
+    publishInbound: async (msg: any) => { published.push(msg); },
+  };
+
+  const fakeCtx = {
+    from: { id: 123, username: "alice" },
+    chat: { id: 456, type: "private" },
+    message: {
+      voice: { file_id: "voice123" },
+    },
+    api: {
+      getFile: async (_id: string) => ({ file_path: "voice/file_0.oga" }),
+    },
+  };
+
+  await (channel as any).onMessage(fakeCtx);
+
+  assertEquals(published.length, 1);
+  assertEquals(
+    published[0].content,
+    "[voice: https://api.telegram.org/file/bot123456:ABC-DEF/voice/file_0.oga]",
+  );
+});
+
+Deno.test("TelegramChannel - voice message falls back to URL on transcription failure", async () => {
+  const bus = new MessageBus();
+  const transcriber = async (_url: string) => ""; // empty = failure
+  const channel = new TelegramChannel(makeConfig(), bus, transcriber);
+
+  const published: any[] = [];
+  (channel as any).bus = {
+    publishInbound: async (msg: any) => { published.push(msg); },
+  };
+
+  const fakeCtx = {
+    from: { id: 123, username: "alice" },
+    chat: { id: 456, type: "private" },
+    message: {
+      voice: { file_id: "voice123" },
+    },
+    api: {
+      getFile: async (_id: string) => ({ file_path: "voice/file_0.oga" }),
+    },
+  };
+
+  await (channel as any).onMessage(fakeCtx);
+
+  assertEquals(published.length, 1);
+  assertEquals(
+    published[0].content,
+    "[voice: https://api.telegram.org/file/bot123456:ABC-DEF/voice/file_0.oga]",
+  );
+});
