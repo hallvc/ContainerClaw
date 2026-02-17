@@ -8,8 +8,10 @@ import { ExecTool } from "./tools/shell.ts";
 import { WebSearchTool, WebFetchTool } from "./tools/web.ts";
 import { MessageTool } from "./tools/message.ts";
 import { CronTool } from "./tools/cron.ts";
+import { SpawnTool } from "./tools/spawn.ts";
 import { connectMcpServers, loadMcpConfig } from "./tools/mcp.ts";
 import type { CronService } from "../cron/service.ts";
+import { SubagentManager } from "./subagent.ts";
 import { SessionManager } from "../session/manager.ts";
 import type { Session } from "../session/manager.ts";
 import { MemoryStore } from "./memory.ts";
@@ -27,6 +29,7 @@ export class AgentLoop {
   private skills: SkillsLoader;
   private config: Config;
   private cronService?: CronService;
+  private subagents: SubagentManager;
   private _running = false;
   private _mcpConnected = false;
   private _mcpCleanup: Array<() => Promise<void>> = [];
@@ -45,6 +48,13 @@ export class AgentLoop {
     this.memory = new MemoryStore(config.data_dir);
     this.skills = new SkillsLoader(config.workspace);
     this.tools = new ToolRegistry();
+    this.subagents = new SubagentManager(provider, config.workspace, bus, {
+      model: resolveModel(config, "chat"),
+      temperature: config.agents.temperature,
+      maxTokens: config.agents.max_tokens,
+      braveApiKey: config.web_search.brave_api_key,
+      execTimeoutMs: config.tools.exec_timeout_ms,
+    });
 
     this.registerTools();
   }
@@ -58,6 +68,7 @@ export class AgentLoop {
     this.tools.register(new ListDirTool(workspace));
     this.tools.register(new ExecTool(workspace, this.config.tools.exec_timeout_ms));
     this.tools.register(new MessageTool((msg) => this.bus.publishOutbound(msg)));
+    this.tools.register(new SpawnTool(this.subagents));
 
     if (this.cronService) {
       this.tools.register(new CronTool(this.cronService));
@@ -92,6 +103,10 @@ export class AgentLoop {
     if (cronTool && "setContext" in cronTool) {
       (cronTool as CronTool).setContext(channel, chatId);
     }
+    const spawnTool = this.tools.get("spawn");
+    if (spawnTool && "setContext" in spawnTool) {
+      (spawnTool as SpawnTool).setContext(channel, chatId);
+    }
   }
 
   async run(): Promise<void> {
@@ -119,6 +134,10 @@ export class AgentLoop {
   }
 
   private async processMessage(msg: InboundMessage): Promise<void> {
+    if (msg.channel === "system") {
+      return this.processSystemMessage(msg);
+    }
+
     this.setToolContext(msg.channel, msg.chatId);
     const sessionKey = getSessionKey(msg);
     const session = this.sessions.getOrCreate(sessionKey);
@@ -183,6 +202,42 @@ export class AgentLoop {
       content: response,
       media: [],
       metadata: msg.metadata,
+    });
+  }
+
+  private async processSystemMessage(msg: InboundMessage): Promise<void> {
+    // Parse origin from chatId format "channel:chatId"
+    let originChannel: string;
+    let originChatId: string;
+    if (msg.chatId.includes(":")) {
+      const idx = msg.chatId.indexOf(":");
+      originChannel = msg.chatId.slice(0, idx);
+      originChatId = msg.chatId.slice(idx + 1);
+    } else {
+      originChannel = "cli";
+      originChatId = msg.chatId;
+    }
+
+    const sessionKey = `${originChannel}:${originChatId}`;
+    const session = this.sessions.getOrCreate(sessionKey);
+    this.setToolContext(originChannel, originChatId);
+
+    const context = new ContextBuilder(this.config.workspace, this.memory, this.skills);
+    const history = session.getHistory(this.config.agents.memory_window);
+    const messages = await context.buildMessages(history, msg.content, []);
+
+    const response = await this.runAgentLoop(context, messages);
+
+    session.addMessage("user", `[System: ${msg.senderId}] ${msg.content}`);
+    session.addMessage("assistant", response);
+    this.sessions.save(session);
+
+    await this.bus.publishOutbound({
+      channel: originChannel,
+      chatId: originChatId,
+      content: response,
+      media: [],
+      metadata: {},
     });
   }
 
@@ -280,8 +335,8 @@ Write an updated MEMORY.md that preserves important existing facts and adds any 
    * Process a message directly (for cron jobs / internal use).
    */
   async processDirect(
-    channel: string,
-    chatId: string,
+    _channel: string,
+    _chatId: string,
     content: string,
   ): Promise<string> {
     await this.connectMcp();

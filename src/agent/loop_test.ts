@@ -570,6 +570,113 @@ Deno.test("AgentLoop - memory consolidation triggers when message count exceeds 
   }
 });
 
+Deno.test("AgentLoop - spawn tool is registered", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
+    let toolNames: string[] = [];
+    const inspectingProvider: LLMProvider = {
+      async chat(params) {
+        if (toolNames.length === 0) {
+          toolNames = ((params.tools ?? []) as Array<{ function: { name: string } }>).map((t) => t.function.name);
+        }
+        return { content: "Done", toolCalls: [], finishReason: "stop", usage: {} };
+      },
+      getDefaultModel() { return "fake"; },
+    };
+    const { bus } = makeFakeBus();
+    const loop = new AgentLoop(bus, inspectingProvider, config);
+
+    await loop.processDirect("slack", "chat1", "Hello");
+    assertEquals(toolNames.includes("spawn"), true);
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("AgentLoop - system message routes response to original channel", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
+    const provider = makeFakeProvider([
+      { content: "Background task result summary", toolCalls: [], finishReason: "stop", usage: {} },
+    ]);
+    // System message with chatId encoding original destination
+    const systemMsg: InboundMessage = {
+      channel: "system",
+      senderId: "subagent",
+      chatId: "slack:chat42",
+      content: "[Subagent 'analyze' completed]\n\nResult: found 3 issues",
+      timestamp: new Date(),
+      media: [],
+      metadata: {},
+    };
+    const { bus, published, stop: busStop } = makeFakeBus([systemMsg]);
+    const loop = new AgentLoop(bus, provider, config);
+
+    const runPromise = loop.run();
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        if (published.length > 0) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 10);
+    });
+    loop.stop();
+    busStop();
+    await runPromise;
+
+    assertEquals(published.length, 1);
+    assertEquals(published[0].channel, "slack");
+    assertEquals(published[0].chatId, "chat42");
+    assertStringIncludes(published[0].content, "Background task result summary");
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("AgentLoop - system message with no colon in chatId falls back", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
+    const provider = makeFakeProvider([
+      { content: "Fallback response", toolCalls: [], finishReason: "stop", usage: {} },
+    ]);
+    const systemMsg: InboundMessage = {
+      channel: "system",
+      senderId: "subagent",
+      chatId: "nochannel",
+      content: "Some system notification",
+      timestamp: new Date(),
+      media: [],
+      metadata: {},
+    };
+    const { bus, published, stop: busStop } = makeFakeBus([systemMsg]);
+    const loop = new AgentLoop(bus, provider, config);
+
+    const runPromise = loop.run();
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        if (published.length > 0) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 10);
+    });
+    loop.stop();
+    busStop();
+    await runPromise;
+
+    assertEquals(published.length, 1);
+    // Falls back to cli channel
+    assertEquals(published[0].channel, "cli");
+    assertEquals(published[0].chatId, "nochannel");
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
 Deno.test("AgentLoop - memory consolidation handles provider errors gracefully", async () => {
   const tmpDir = await Deno.makeTempDir();
   try {
