@@ -16,15 +16,16 @@ cd nanobot
 deno task onboard
 ```
 
-**2. Configure** (`~/.nanobot/config.json`)
+**2. Configure** (`~/.nanobot/data/.env`)
 
-```json
-{
-  "openrouter": {
-    "api_key": "sk-or-v1-xxx",
-    "default_model": "anthropic/claude-sonnet-4-20250514"
-  }
-}
+```bash
+OPENROUTER_API_KEY=sk-or-v1-xxx
+```
+
+Or copy the example and fill in your values:
+
+```bash
+cp .env.example ~/.nanobot/data/.env
 ```
 
 **3. Chat**
@@ -71,22 +72,57 @@ Session management: `/new` clears the session, `/help` shows available commands.
 
 ## Configuration
 
-Config file: `~/.nanobot/config.json`
+Configuration is loaded from three sources, with later sources overriding earlier ones:
+
+1. **`config.json`** — Non-secret settings (models, tuning, paths)
+2. **`.env` file** — Secrets and overrides (API keys, tokens)
+3. **Shell environment variables** — Always win over both files
+
+The `.env` file is loaded from the same directory as `config.json`. By default, `deno task onboard` writes `config.json` to `~/.nanobot/data/` and secrets to `~/.nanobot/data/.env`.
+
+### Environment Variables
+
+All settings can be configured via environment variables. A `.env.example` is included in the project root.
+
+```bash
+# Required
+OPENROUTER_API_KEY=sk-or-v1-xxx
+
+# Model selection (optional)
+NANOBOT_MODEL=anthropic/claude-sonnet-4-20250514
+NANOBOT_MODEL_CHAT=deepseek/deepseek-r1
+NANOBOT_MODEL_MEMORY=anthropic/claude-haiku-4-5-20251001
+
+# Agent tuning (optional)
+NANOBOT_TEMPERATURE=0.7
+NANOBOT_MAX_TOKENS=4096
+NANOBOT_MEMORY_WINDOW=50
+NANOBOT_MAX_ITERATIONS=20
+
+# Channels (optional)
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+TELEGRAM_BOT_TOKEN=...
+AGENTMAIL_API_KEY=...
+```
 
 ### Provider (OpenRouter)
+
+The LLM provider is [OpenRouter](https://openrouter.ai), which gives access to models from Anthropic, OpenAI, Google, Meta, DeepSeek, and others through a single API key.
+
+Set the API key via environment variable (`OPENROUTER_API_KEY`) or in `config.json`:
 
 ```json
 {
   "openrouter": {
-    "api_key": "sk-or-v1-xxx",
     "default_model": "minimax/minimax-m2.5"
   }
 }
 ```
 
-The LLM provider is [OpenRouter](https://openrouter.ai), which gives access to models from Anthropic, OpenAI, Google, Meta, DeepSeek, and others through a single API key.
-
 ### Agent Settings
+
+Configure via environment variables (see above) or `config.json`:
 
 ```json
 {
@@ -125,17 +161,19 @@ To use your own Exa API key for higher rate limits, configure the Exa MCP server
 
 ### Full Config Reference
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `openrouter.api_key` | `""` | OpenRouter API key |
-| `openrouter.default_model` | `"minimax/minimax-m2.5"` | Default LLM model |
-| `agents.temperature` | `0.7` | Sampling temperature (0-2) |
-| `agents.max_tokens` | `4096` | Max response tokens |
-| `agents.memory_window` | `50` | Messages before memory consolidation |
-| `agents.max_iterations` | `20` | Max tool-call iterations per turn |
-| `tools.exec_timeout_ms` | `60000` | Shell command timeout (ms) |
-| `workspace` | `"/workspace"` | Agent workspace directory |
-| `data_dir` | `"/data"` | Data storage directory |
+| Setting | Env Variable | Default | Description |
+|---------|-------------|---------|-------------|
+| `openrouter.api_key` | `OPENROUTER_API_KEY` | `""` | OpenRouter API key |
+| `openrouter.default_model` | `NANOBOT_MODEL` | `"minimax/minimax-m2.5"` | Default LLM model |
+| `agents.models.chat` | `NANOBOT_MODEL_CHAT` | — | Chat model override |
+| `agents.models.memory` | `NANOBOT_MODEL_MEMORY` | — | Memory consolidation model |
+| `agents.temperature` | `NANOBOT_TEMPERATURE` | `0.7` | Sampling temperature (0-2) |
+| `agents.max_tokens` | `NANOBOT_MAX_TOKENS` | `4096` | Max response tokens |
+| `agents.memory_window` | `NANOBOT_MEMORY_WINDOW` | `50` | Messages before memory consolidation |
+| `agents.max_iterations` | `NANOBOT_MAX_ITERATIONS` | `20` | Max tool-call iterations per turn |
+| `tools.exec_timeout_ms` | — | `60000` | Shell command timeout (ms) |
+| `workspace` | `NANOBOT_WORKSPACE` | `"/workspace"` | Agent workspace directory |
+| `data_dir` | `NANOBOT_DATA_DIR` | `"/data"` | Data storage directory |
 
 ## Chat Channels
 
@@ -157,16 +195,12 @@ Uses Socket Mode — no public URL required.
 - **App Home:** Enable Messages Tab, allow users to send messages
 - **Install** to workspace, copy Bot Token (`xoxb-...`)
 
-**2. Configure**
+**2. Configure** (via `.env` or `config.json`)
 
-```json
-{
-  "slack": {
-    "bot_token": "xoxb-...",
-    "app_token": "xapp-...",
-    "group_policy": "mention"
-  }
-}
+```bash
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+SLACK_GROUP_POLICY=mention
 ```
 
 `group_policy`: `"mention"` (respond when @mentioned), `"open"` (respond to all), or `"allowlist"`.
@@ -175,33 +209,24 @@ Uses Socket Mode — no public URL required.
 
 **1. Create a bot** via `@BotFather` on Telegram and copy the token.
 
-**2. Configure**
+**2. Configure** (via `.env` or `config.json`)
 
-```json
-{
-  "telegram": {
-    "bot_token": "YOUR_BOT_TOKEN",
-    "allow_from": ["YOUR_USER_ID"]
-  }
-}
+```bash
+TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN
+TELEGRAM_ALLOW_FROM=USER_ID_1,USER_ID_2
 ```
 
 ### Email
 
 Uses the [AgentMail](https://agentmail.to) service for email integration.
 
-```json
-{
-  "email": {
-    "api_key": "YOUR_AGENTMAIL_API_KEY",
-    "inbox_id": "YOUR_INBOX_ID",
-    "username": "nanobot",
-    "domain": "agentmail.to",
-    "poll_interval_seconds": 15,
-    "policy": "open",
-    "allow_from": []
-  }
-}
+```bash
+AGENTMAIL_API_KEY=YOUR_AGENTMAIL_API_KEY
+AGENTMAIL_INBOX_ID=YOUR_INBOX_ID
+AGENTMAIL_USERNAME=nanobot
+AGENTMAIL_DOMAIN=agentmail.to
+AGENTMAIL_POLL_INTERVAL=15
+AGENTMAIL_POLICY=open
 ```
 
 ## MCP (Model Context Protocol)
@@ -309,15 +334,17 @@ src/
 # Build
 docker build -t nanobot .
 
-# Initialize config (first time)
-docker run -v ~/.nanobot:/root/.nanobot --rm nanobot run --allow-all src/main.ts onboard
+# Run with docker-compose (reads .env automatically)
+docker compose up
 
-# Run gateway
-docker run -v ~/.nanobot:/root/.nanobot -p 18790:18790 nanobot
+# Or run directly with env vars
+docker run --env-file .env -v nanobot-data:/data -v nanobot-workspace:/workspace nanobot
 
 # Single message
-docker run -v ~/.nanobot:/root/.nanobot --rm nanobot run --allow-all src/main.ts agent -m "Hello!"
+docker run --env-file .env --rm nanobot run --allow-all src/main.ts agent -m "Hello!"
 ```
+
+The included `docker-compose.yml` passes all supported environment variables into the container. Place your `.env` file in the project root or export the variables in your shell.
 
 ## Security
 
