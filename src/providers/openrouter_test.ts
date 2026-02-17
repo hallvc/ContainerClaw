@@ -1,0 +1,434 @@
+import { assertEquals } from "@std/assert";
+import { OpenRouterProvider } from "./openrouter.ts";
+
+/** Helper: build a minimal OpenRouter-shaped JSON response body. */
+function makeResponseBody(
+  overrides: {
+    content?: string | null;
+    finish_reason?: string;
+    tool_calls?: Array<{
+      id: string;
+      function: { name: string; arguments: string };
+    }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+    error?: { message: string };
+  } = {},
+): string {
+  const body: Record<string, unknown> = {
+    choices: [
+      {
+        message: {
+          content: "content" in overrides ? overrides.content : "Hello!",
+          ...(overrides.tool_calls ? { tool_calls: overrides.tool_calls } : {}),
+        },
+        finish_reason: overrides.finish_reason ?? "stop",
+      },
+    ],
+  };
+  if (overrides.usage) body.usage = overrides.usage;
+  if (overrides.error) body.error = overrides.error;
+  return JSON.stringify(body);
+}
+
+/** Stub globalThis.fetch, returning captured request details + controlled response. */
+function stubFetch(
+  responseBody: string,
+  status = 200,
+): { calls: Array<{ url: string; init: RequestInit }>; restore: () => void } {
+  const original = globalThis.fetch;
+  const calls: Array<{ url: string; init: RequestInit }> = [];
+
+  globalThis.fetch = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    calls.push({ url, init: init ?? {} });
+    return Promise.resolve(
+      new Response(responseBody, {
+        status,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  };
+
+  return { calls, restore: () => { globalThis.fetch = original; } };
+}
+
+/** Stub globalThis.fetch to throw an error. */
+function stubFetchThrow(
+  error: Error,
+): { restore: () => void } {
+  const original = globalThis.fetch;
+  globalThis.fetch = (): Promise<Response> => {
+    return Promise.reject(error);
+  };
+  return { restore: () => { globalThis.fetch = original; } };
+}
+
+// ---------------------------------------------------------------------------
+// 1. Constructor & getDefaultModel
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - getDefaultModel returns configured model", () => {
+  const provider = new OpenRouterProvider("sk-key", "anthropic/claude-sonnet-4-5");
+  assertEquals(provider.getDefaultModel(), "anthropic/claude-sonnet-4-5");
+});
+
+// ---------------------------------------------------------------------------
+// 2. Successful chat — text response (no tools)
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat returns text response with correct fields", async () => {
+  const stub = stubFetch(makeResponseBody({
+    content: "Hi there!",
+    finish_reason: "stop",
+    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+  }));
+
+  try {
+    const provider = new OpenRouterProvider("sk-test", "test-model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hello" }],
+      maxTokens: 100,
+      temperature: 0.5,
+    });
+
+    assertEquals(result.content, "Hi there!");
+    assertEquals(result.toolCalls, []);
+    assertEquals(result.finishReason, "stop");
+    assertEquals(result.usage.promptTokens, 10);
+    assertEquals(result.usage.completionTokens, 5);
+    assertEquals(result.usage.totalTokens, 15);
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("OpenRouterProvider - chat sends correct URL and headers", async () => {
+  const stub = stubFetch(makeResponseBody());
+
+  try {
+    const provider = new OpenRouterProvider("sk-my-key", "test-model");
+    await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(stub.calls.length, 1);
+    assertEquals(stub.calls[0].url, "https://openrouter.ai/api/v1/chat/completions");
+
+    const headers = stub.calls[0].init.headers as Record<string, string>;
+    assertEquals(headers["Authorization"], "Bearer sk-my-key");
+    assertEquals(headers["Content-Type"], "application/json");
+    assertEquals(headers["HTTP-Referer"], "https://github.com/containerclaw/nanobot");
+    assertEquals(headers["X-Title"], "nanobot");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("OpenRouterProvider - chat sends correct request body without tools", async () => {
+  const stub = stubFetch(makeResponseBody());
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "default-model");
+    await provider.chat({
+      messages: [{ role: "user", content: "Test" }],
+      maxTokens: 200,
+      temperature: 0.8,
+    });
+
+    const body = JSON.parse(stub.calls[0].init.body as string);
+    assertEquals(body.model, "default-model");
+    assertEquals(body.messages, [{ role: "user", content: "Test" }]);
+    assertEquals(body.max_tokens, 200);
+    assertEquals(body.temperature, 0.8);
+    assertEquals(body.tools, undefined);
+    assertEquals(body.tool_choice, undefined);
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 3. Successful chat — with tool calls
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat parses tool calls from response", async () => {
+  const stub = stubFetch(makeResponseBody({
+    content: null,
+    finish_reason: "tool_calls",
+    tool_calls: [
+      {
+        id: "call_abc",
+        function: {
+          name: "read_file",
+          arguments: JSON.stringify({ path: "/tmp/test.txt" }),
+        },
+      },
+      {
+        id: "call_def",
+        function: {
+          name: "exec",
+          arguments: JSON.stringify({ command: "ls" }),
+        },
+      },
+    ],
+  }));
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Read a file" }],
+    });
+
+    assertEquals(result.toolCalls.length, 2);
+    assertEquals(result.toolCalls[0].id, "call_abc");
+    assertEquals(result.toolCalls[0].name, "read_file");
+    assertEquals(result.toolCalls[0].arguments, { path: "/tmp/test.txt" });
+    assertEquals(result.toolCalls[1].id, "call_def");
+    assertEquals(result.toolCalls[1].name, "exec");
+    assertEquals(result.toolCalls[1].arguments, { command: "ls" });
+    assertEquals(result.finishReason, "tool_calls");
+    assertEquals(result.content, null);
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 4. Tool definitions forwarded
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat includes tools and tool_choice when tools provided", async () => {
+  const stub = stubFetch(makeResponseBody());
+
+  const tools = [
+    { type: "function", function: { name: "read_file", parameters: { type: "object" } } },
+  ];
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+      tools,
+    });
+
+    const body = JSON.parse(stub.calls[0].init.body as string);
+    assertEquals(body.tools, tools);
+    assertEquals(body.tool_choice, "auto");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 5. No tools omits tool_choice
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat omits tools and tool_choice when no tools", async () => {
+  const stub = stubFetch(makeResponseBody());
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+      tools: [],
+    });
+
+    const body = JSON.parse(stub.calls[0].init.body as string);
+    assertEquals(body.tools, undefined);
+    assertEquals(body.tool_choice, undefined);
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 6. Model override
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat uses explicit model over default", async () => {
+  const stub = stubFetch(makeResponseBody());
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "default-model");
+    await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+      model: "override-model",
+    });
+
+    const body = JSON.parse(stub.calls[0].init.body as string);
+    assertEquals(body.model, "override-model");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 7. Model default
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat uses defaultModel when model not specified", async () => {
+  const stub = stubFetch(makeResponseBody());
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "my-default");
+    await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    const body = JSON.parse(stub.calls[0].init.body as string);
+    assertEquals(body.model, "my-default");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 8. HTTP error response
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat handles HTTP error response", async () => {
+  const stub = stubFetch(
+    JSON.stringify({ error: { message: "Rate limit exceeded" } }),
+    429,
+  );
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.finishReason, "error");
+    assertEquals(result.content, "Rate limit exceeded");
+    assertEquals(result.toolCalls, []);
+    assertEquals(result.usage, {});
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 9. API error in body (ok: true but error field present)
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat handles API error in response body", async () => {
+  const stub = stubFetch(makeResponseBody({
+    error: { message: "Model not found" },
+  }));
+
+  // The implementation checks `!response.ok || data.error`
+  // With status 200 (ok=true) but error in body, it should return error
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.finishReason, "error");
+    assertEquals(result.content, "Model not found");
+    assertEquals(result.toolCalls, []);
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 10. Network/fetch exception
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat handles fetch exception", async () => {
+  const stub = stubFetchThrow(new TypeError("Failed to fetch"));
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.finishReason, "error");
+    assertEquals(result.content, "Failed to fetch");
+    assertEquals(result.toolCalls, []);
+    assertEquals(result.usage, {});
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 11. Malformed tool arguments (JSON parse failure)
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat handles malformed tool arguments", async () => {
+  const stub = stubFetch(makeResponseBody({
+    content: null,
+    finish_reason: "tool_calls",
+    tool_calls: [
+      {
+        id: "call_bad",
+        function: {
+          name: "some_tool",
+          arguments: "not valid json {{{",
+        },
+      },
+    ],
+  }));
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.toolCalls.length, 1);
+    assertEquals(result.toolCalls[0].id, "call_bad");
+    assertEquals(result.toolCalls[0].name, "some_tool");
+    assertEquals(result.toolCalls[0].arguments, {});
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 12. Null content in response
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat handles null content", async () => {
+  const stub = stubFetch(makeResponseBody({ content: null }));
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.content, null);
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 13. Missing usage in response
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat handles missing usage", async () => {
+  const stub = stubFetch(JSON.stringify({
+    choices: [{
+      message: { content: "Hi" },
+      finish_reason: "stop",
+    }],
+  }));
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.usage.promptTokens, undefined);
+    assertEquals(result.usage.completionTokens, undefined);
+    assertEquals(result.usage.totalTokens, undefined);
+  } finally {
+    stub.restore();
+  }
+});
