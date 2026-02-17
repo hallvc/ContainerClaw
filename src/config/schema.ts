@@ -58,6 +58,11 @@ export const WebSearchConfigSchema = z.object({
   brave_api_key: z.string().optional(),
 });
 
+export const HeartbeatConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  interval_seconds: z.number().int().positive().default(1800),
+});
+
 export const ConfigSchema = z.object({
   slack: SlackConfigSchema.default({}),
   email: EmailConfigSchema.default({}),
@@ -66,6 +71,7 @@ export const ConfigSchema = z.object({
   agents: AgentsConfigSchema.default({}),
   tools: ToolsConfigSchema.default({}),
   web_search: WebSearchConfigSchema.default({}),
+  heartbeat: HeartbeatConfigSchema.default({}),
   workspace: z.string().default("/workspace"),
   data_dir: z.string().default("/data"),
 });
@@ -78,6 +84,7 @@ export type OpenRouterConfig = z.infer<typeof OpenRouterConfigSchema>;
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
 export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
 export type WebSearchConfig = z.infer<typeof WebSearchConfigSchema>;
+export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 
 /** Workspace confinement is always enforced — not configurable. */

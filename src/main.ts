@@ -8,6 +8,7 @@ import { EmailChannel } from "./channels/email.ts";
 import { TelegramChannel } from "./channels/telegram.ts";
 import { ChannelManager } from "./channels/manager.ts";
 import { CronService } from "./cron/service.ts";
+import { HeartbeatService } from "./heartbeat/service.ts";
 
 async function main(): Promise<void> {
   console.log("nanobot starting...");
@@ -104,11 +105,24 @@ async function main(): Promise<void> {
     }
   });
 
+  // Create heartbeat service
+  const heartbeat = new HeartbeatService(
+    config.workspace,
+    config.heartbeat.interval_seconds,
+    config.heartbeat.enabled,
+  );
+  heartbeat.setCallback(async (prompt) => {
+    console.log("Heartbeat executing...");
+    const response = await agent.processDirect("heartbeat", "system", prompt);
+    return response;
+  });
+
   // Graceful shutdown
   const shutdown = async () => {
     console.log("\nShutting down...");
     agent.stop();
     cron.stop();
+    heartbeat.stop();
     bus.stop();
     await channelManager.stopAll();
     console.log("Shutdown complete");
@@ -133,6 +147,7 @@ async function main(): Promise<void> {
     agent.run(),
     channelManager.startAll(),
     cron.run(),
+    heartbeat.run(),
     bus.dispatchOutbound(),
   ]);
 }

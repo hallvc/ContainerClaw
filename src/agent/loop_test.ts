@@ -37,6 +37,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     telegram: { bot_token: "", allow_from: [] },
     tools: { exec_timeout_ms: 60_000 },
     web_search: {},
+    heartbeat: { enabled: false, interval_seconds: 1800 },
     workspace: "/tmp/test-workspace",
     data_dir: "/tmp/test-data",
     ...overrides,

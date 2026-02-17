@@ -12,6 +12,13 @@ function parseOptionalInt(val: string | undefined): number | undefined {
   return isNaN(n) ? undefined : n;
 }
 
+function parseOptionalBool(val: string | undefined): boolean | undefined {
+  if (val === undefined) return undefined;
+  if (val.toLowerCase() === "true") return true;
+  if (val.toLowerCase() === "false") return false;
+  return undefined;
+}
+
 async function readFileConfig(path: string): Promise<Record<string, unknown>> {
   try {
     const text = await Deno.readTextFile(path);
@@ -97,6 +104,13 @@ export function buildRawConfig(
         brave_api_key: env.BRAVE_API_KEY,
       }),
     },
+    heartbeat: {
+      ...((fileConfig.heartbeat as Record<string, unknown>) ?? {}),
+      ...defined({
+        enabled: parseOptionalBool(env.NANOBOT_HEARTBEAT_ENABLED),
+        interval_seconds: parseOptionalInt(env.NANOBOT_HEARTBEAT_INTERVAL),
+      }),
+    },
   };
 }
 
@@ -125,6 +139,8 @@ export async function loadConfig(): Promise<Config> {
     AGENTMAIL_DOMAIN: Deno.env.get("AGENTMAIL_DOMAIN"),
     AGENTMAIL_POLL_INTERVAL: Deno.env.get("AGENTMAIL_POLL_INTERVAL"),
     AGENTMAIL_POLICY: Deno.env.get("AGENTMAIL_POLICY"),
+    NANOBOT_HEARTBEAT_ENABLED: Deno.env.get("NANOBOT_HEARTBEAT_ENABLED"),
+    NANOBOT_HEARTBEAT_INTERVAL: Deno.env.get("NANOBOT_HEARTBEAT_INTERVAL"),
   };
   const raw = buildRawConfig(env, fileConfig);
   const clean = JSON.parse(JSON.stringify(raw));
