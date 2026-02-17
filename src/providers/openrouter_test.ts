@@ -411,6 +411,61 @@ Deno.test("OpenRouterProvider - chat handles null content", async () => {
 // 13. Missing usage in response
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 14. reasoning_content extraction
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat extracts reasoning_content when present", async () => {
+  // Build a response body with reasoning_content on the message
+  const body = JSON.stringify({
+    choices: [{
+      message: {
+        content: "The answer is 42",
+        reasoning_content: "Let me think step by step...",
+      },
+      finish_reason: "stop",
+    }],
+    usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+  });
+  const stub = stubFetch(body);
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "deepseek/deepseek-r1");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "What is the meaning of life?" }],
+    });
+
+    assertEquals(result.content, "The answer is 42");
+    assertEquals(result.reasoning_content, "Let me think step by step...");
+    assertEquals(result.finishReason, "stop");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("OpenRouterProvider - chat returns null reasoning_content when absent", async () => {
+  const stub = stubFetch(makeResponseBody({
+    content: "Hello!",
+    finish_reason: "stop",
+  }));
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "anthropic/claude-sonnet-4-5");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.content, "Hello!");
+    assertEquals(result.reasoning_content, null);
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 13. Missing usage in response
+// ---------------------------------------------------------------------------
+
 Deno.test("OpenRouterProvider - chat handles missing usage", async () => {
   const stub = stubFetch(JSON.stringify({
     choices: [{

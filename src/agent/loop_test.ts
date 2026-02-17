@@ -447,6 +447,78 @@ Deno.test("AgentLoop - WebSearchTool not registered when brave_api_key absent", 
   }
 });
 
+Deno.test("AgentLoop - reasoning_content is passed through to provider on next iteration", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
+    let secondCallMessages: Array<Record<string, unknown>> = [];
+    let callCount = 0;
+    const provider: LLMProvider = {
+      async chat(params) {
+        callCount++;
+        if (callCount === 1) {
+          // First call: return a tool call with reasoning_content
+          return {
+            content: "Let me check",
+            toolCalls: [{ id: "tc1", name: "list_dir", arguments: { path: "." } }],
+            finishReason: "tool_calls",
+            reasoning_content: "I should list the directory first",
+            usage: {},
+          };
+        }
+        // Second call: capture messages to verify reasoning_content was included
+        secondCallMessages = params.messages as Array<Record<string, unknown>>;
+        return { content: "Done", toolCalls: [], finishReason: "stop", usage: {} };
+      },
+      getDefaultModel() { return "fake"; },
+    };
+    const { bus } = makeFakeBus();
+    const loop = new AgentLoop(bus, provider, config);
+
+    await loop.processDirect("slack", "chat1", "List files");
+
+    // Find the assistant message in the second call's messages
+    const assistantMsg = secondCallMessages.find((m) => m.role === "assistant");
+    assertEquals(assistantMsg?.reasoning_content, "I should list the directory first");
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("AgentLoop - reasoning_content omitted from message when not present", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
+    let secondCallMessages: Array<Record<string, unknown>> = [];
+    let callCount = 0;
+    const provider: LLMProvider = {
+      async chat(params) {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            content: "Let me check",
+            toolCalls: [{ id: "tc1", name: "list_dir", arguments: { path: "." } }],
+            finishReason: "tool_calls",
+            usage: {},
+          };
+        }
+        secondCallMessages = params.messages as Array<Record<string, unknown>>;
+        return { content: "Done", toolCalls: [], finishReason: "stop", usage: {} };
+      },
+      getDefaultModel() { return "fake"; },
+    };
+    const { bus } = makeFakeBus();
+    const loop = new AgentLoop(bus, provider, config);
+
+    await loop.processDirect("slack", "chat1", "List files");
+
+    const assistantMsg = secondCallMessages.find((m) => m.role === "assistant");
+    assertEquals("reasoning_content" in (assistantMsg ?? {}), false);
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
 Deno.test("AgentLoop - memory consolidation triggers when message count exceeds memory_window", async () => {
   const tmpDir = await Deno.makeTempDir();
   try {

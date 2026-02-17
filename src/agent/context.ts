@@ -6,6 +6,7 @@ import type { ToolCallRequest } from "../providers/base.ts";
 interface ChatMessage {
   role: string;
   content: string | null;
+  reasoning_content?: string | null;
   tool_calls?: Array<{
     id: string;
     type: "function";
@@ -122,11 +123,17 @@ export class ContextBuilder {
   addAssistantMessage(
     content: string | null,
     toolCalls: ToolCallRequest[],
+    reasoningContent?: string | null,
   ): void {
     const msg: ChatMessage = {
       role: "assistant",
       content,
     };
+
+    // Thinking models reject history without this
+    if (reasoningContent) {
+      msg.reasoning_content = reasoningContent;
+    }
 
     if (toolCalls.length > 0) {
       msg.tool_calls = toolCalls.map((tc) => ({

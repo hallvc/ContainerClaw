@@ -216,7 +216,11 @@ export class AgentLoop {
       }
 
       // Add assistant message with tool calls
-      context.addAssistantMessage(response.content, response.toolCalls);
+      context.addAssistantMessage(response.content, response.toolCalls, response.reasoning_content);
+
+      if (response.reasoning_content) {
+        console.log(`Reasoning: ${response.reasoning_content.slice(0, 200)}`);
+      }
 
       // Execute each tool call
       for (const tc of response.toolCalls) {

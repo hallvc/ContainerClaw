@@ -5,6 +5,7 @@ const API_URL = "https://openrouter.ai/api/v1/chat/completions";
 interface OpenRouterChoice {
   message: {
     content: string | null;
+    reasoning_content?: string | null;
     tool_calls?: Array<{
       id: string;
       function: {
@@ -105,6 +106,7 @@ export class OpenRouterProvider implements LLMProvider {
 
       return {
         content: choice.message.content ?? null,
+        reasoning_content: choice.message.reasoning_content ?? null,
         toolCalls,
         finishReason: choice.finish_reason,
         usage: {
