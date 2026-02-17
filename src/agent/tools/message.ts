@@ -27,7 +27,7 @@ export class MessageTool implements Tool {
         description: "Message content to send.",
       },
     },
-    required: ["channel", "chat_id", "content"],
+    required: ["content"],
   };
 
   private defaultChannel?: string;

@@ -115,6 +115,10 @@ export class EditFileTool implements Tool {
     if (!original.includes(oldText)) {
       throw new Error(`old_text not found in "${filePath}".`);
     }
+    const count = original.split(oldText).length - 1;
+    if (count > 1) {
+      return `old_text appears ${count} times in "${filePath}". Provide more context to make it unique.`;
+    }
     const updated = original.replace(oldText, newText);
     await Deno.writeTextFile(safe, updated);
     return `Edited "${filePath}" successfully.`;

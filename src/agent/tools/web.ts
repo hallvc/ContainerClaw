@@ -89,6 +89,10 @@ export class WebFetchTool implements Tool {
 
   async execute(args: Record<string, unknown>): Promise<string> {
     const url = String(args.url);
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error(`URL scheme must be http or https, got "${parsed.protocol}"`);
+    }
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Fetch error: ${response.status} ${response.statusText}`);
