@@ -31,14 +31,12 @@ export class MemoryStore {
   async appendHistory(entry: string): Promise<void> {
     await Deno.mkdir(this.dataDir, { recursive: true });
     const line = `[${new Date().toISOString()}] ${entry}\n`;
-    const file = await Deno.open(this.historyPath(), {
+    await using file = await Deno.open(this.historyPath(), {
       write: true,
       create: true,
       append: true,
     });
-    const encoder = new TextEncoder();
-    await file.write(encoder.encode(line));
-    file.close();
+    await file.write(new TextEncoder().encode(line));
   }
 
   async getMemoryContext(): Promise<string> {

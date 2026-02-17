@@ -6,7 +6,7 @@ Delivers core agent functionality with tool execution, multi-channel chat, MCP s
 
 ## Quick Start
 
-**Prerequisites:** [Deno](https://deno.com/) 2.1.4+ and an [OpenRouter](https://openrouter.ai/keys) API key.
+**Prerequisites:** [Deno](https://deno.com/) 2.6+ and an [OpenRouter](https://openrouter.ai/keys) API key.
 
 **1. Clone and initialize**
 
