@@ -44,13 +44,13 @@ exec(command: str, working_dir: str = None) -> str
 
 ## Web Access
 
-### web_search
-Search the web using Brave Search API.
+### web_search_exa
+Search the web using [Exa](https://exa.ai/) (provided via MCP, enabled by default).
 ```
-web_search(query: str, count: int = 5) -> str
+web_search_exa(query: str) -> str
 ```
 
-Returns search results with titles, URLs, and snippets. Requires `tools.web.search.apiKey` in config.
+Returns search results with titles, URLs, and content. No API key required (free tier). Additional Exa tools like `get_code_context_exa` and `company_research_exa` are also available.
 
 ### web_fetch
 Fetch and extract main content from a URL.

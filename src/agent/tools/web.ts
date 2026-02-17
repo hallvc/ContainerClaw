@@ -1,5 +1,5 @@
 /**
- * Web search and fetch tools.
+ * Web fetch tool.
  */
 
 import { Readability } from "@mozilla/readability";
@@ -7,74 +7,6 @@ import { parseHTML } from "linkedom";
 import type { Tool } from "./base.ts";
 
 const MAX_OUTPUT = 10_000;
-
-interface BraveSearchResult {
-  title: string;
-  url: string;
-  description?: string;
-}
-
-interface BraveSearchResponse {
-  web?: {
-    results?: BraveSearchResult[];
-  };
-}
-
-export class WebSearchTool implements Tool {
-  name = "web_search";
-  description = "Search the web using Brave Search API.";
-  parameters = {
-    type: "object",
-    properties: {
-      query: { type: "string", description: "Search query." },
-      count: {
-        type: "number",
-        description: "Number of results to return (default 5).",
-      },
-    },
-    required: ["query"],
-  };
-
-  constructor(private apiKey?: string) {}
-
-  async execute(args: Record<string, unknown>): Promise<string> {
-    if (!this.apiKey) {
-      return "Web search not configured";
-    }
-
-    const query = String(args.query);
-    const count = typeof args.count === "number" ? args.count : 5;
-
-    const url =
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}`;
-
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "X-Subscription-Token": this.apiKey,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `Brave Search API error: ${response.status} ${response.statusText}`,
-      );
-    }
-
-    const data: BraveSearchResponse = await response.json();
-    const results = data.web?.results ?? [];
-
-    if (results.length === 0) {
-      return "No results found.";
-    }
-
-    return results
-      .map((r, i) =>
-        `${i + 1}. ${r.title}\n   URL: ${r.url}${r.description ? `\n   ${r.description}` : ""}`
-      )
-      .join("\n\n");
-  }
-}
 
 export class WebFetchTool implements Tool {
   name = "web_fetch";

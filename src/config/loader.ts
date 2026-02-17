@@ -100,12 +100,6 @@ export function buildRawConfig(
           : undefined,
       }),
     },
-    web_search: {
-      ...((fileConfig.web_search as Record<string, unknown>) ?? {}),
-      ...defined({
-        brave_api_key: env.BRAVE_API_KEY,
-      }),
-    },
     heartbeat: {
       ...((fileConfig.heartbeat as Record<string, unknown>) ?? {}),
       ...defined({
@@ -166,7 +160,6 @@ export async function loadConfig(configPath?: string): Promise<Config> {
     OPENROUTER_API_KEY: Deno.env.get("OPENROUTER_API_KEY"),
     TELEGRAM_BOT_TOKEN: Deno.env.get("TELEGRAM_BOT_TOKEN"),
     TELEGRAM_ALLOW_FROM: Deno.env.get("TELEGRAM_ALLOW_FROM"),
-    BRAVE_API_KEY: Deno.env.get("BRAVE_API_KEY"),
     AGENTMAIL_API_KEY: Deno.env.get("AGENTMAIL_API_KEY"),
     AGENTMAIL_INBOX_ID: Deno.env.get("AGENTMAIL_INBOX_ID"),
     AGENTMAIL_USERNAME: Deno.env.get("AGENTMAIL_USERNAME"),

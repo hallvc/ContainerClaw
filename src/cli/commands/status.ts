@@ -12,7 +12,6 @@ export interface StatusInfo {
     telegram: boolean;
   };
   heartbeat: { enabled: boolean; intervalSeconds: number };
-  webSearch: boolean;
 }
 
 export function getStatus(config: Config): StatusInfo {
@@ -32,7 +31,6 @@ export function getStatus(config: Config): StatusInfo {
       enabled: config.heartbeat.enabled,
       intervalSeconds: config.heartbeat.interval_seconds,
     },
-    webSearch: !!config.web_search.brave_api_key,
   };
 }
 
@@ -58,7 +56,6 @@ export function renderStatus(info: StatusInfo): string {
     `  ${check(info.channels.telegram)} Telegram`,
     "",
     `Heartbeat:    ${check(info.heartbeat.enabled)} ${info.heartbeat.enabled ? `(every ${info.heartbeat.intervalSeconds}s)` : "(disabled)"}`,
-    `Web Search:   ${check(info.webSearch)}`,
   ];
   return lines.join("\n");
 }

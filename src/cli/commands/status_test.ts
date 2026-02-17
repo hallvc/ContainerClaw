@@ -30,7 +30,6 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     },
     telegram: { bot_token: "", allow_from: [] },
     tools: { exec_timeout_ms: 60_000 },
-    web_search: {},
     heartbeat: { enabled: false, interval_seconds: 1800 },
     workspace: "/workspace",
     data_dir: "/data",
@@ -126,20 +125,6 @@ Deno.test("getStatus - shows heartbeat status", () => {
   const status = getStatus(config);
   assertEquals(status.heartbeat.enabled, true);
   assertEquals(status.heartbeat.intervalSeconds, 900);
-});
-
-Deno.test("getStatus - shows web search configured", () => {
-  const config = makeConfig({
-    web_search: { brave_api_key: "brave-key" },
-  });
-  const status = getStatus(config);
-  assertEquals(status.webSearch, true);
-});
-
-Deno.test("getStatus - web search not configured without key", () => {
-  const config = makeConfig({ web_search: {} });
-  const status = getStatus(config);
-  assertEquals(status.webSearch, false);
 });
 
 Deno.test("renderStatus - includes workspace path", () => {

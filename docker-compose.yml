@@ -22,8 +22,6 @@ services:
       - NANOBOT_MODEL_CHAT=${NANOBOT_MODEL_CHAT:-}
       # Optional: Override model for memory consolidation only
       - NANOBOT_MODEL_MEMORY=${NANOBOT_MODEL_MEMORY:-}
-      # Optional: Brave Search API key for web_search tool
-      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
       # Telegram channel (optional, at least one channel required)
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_ALLOW_FROM=${TELEGRAM_ALLOW_FROM:-}

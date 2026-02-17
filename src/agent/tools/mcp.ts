@@ -16,15 +16,21 @@ export interface MCPServerConfig {
   url?: string;
 }
 
-/** Load MCP server config from {workspace}/mcp_servers.json. */
+/** Default MCP servers included out of the box. */
+const DEFAULT_MCP_SERVERS: Record<string, MCPServerConfig> = {
+  exa: { url: "https://mcp.exa.ai/mcp" },
+};
+
+/** Load MCP server config from {workspace}/mcp_servers.json, merged with defaults. */
 export async function loadMcpConfig(
   workspace: string,
 ): Promise<Record<string, MCPServerConfig>> {
   try {
     const text = await Deno.readTextFile(join(workspace, "mcp_servers.json"));
-    return JSON.parse(text);
+    const user = JSON.parse(text);
+    return { ...DEFAULT_MCP_SERVERS, ...user };
   } catch {
-    return {};
+    return { ...DEFAULT_MCP_SERVERS };
   }
 }
 

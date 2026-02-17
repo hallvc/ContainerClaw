@@ -36,7 +36,6 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     },
     telegram: { bot_token: "", allow_from: [] },
     tools: { exec_timeout_ms: 60_000 },
-    web_search: {},
     heartbeat: { enabled: false, interval_seconds: 1800 },
     workspace: "/tmp/test-workspace",
     data_dir: "/tmp/test-data",
@@ -362,86 +361,6 @@ Deno.test("AgentLoop - slash command case insensitive /NEW works", async () => {
 
     assertEquals(published.length, 1);
     assertEquals(published[0].content, "Session cleared. Starting fresh!");
-  } finally {
-    await Deno.remove(tmpDir, { recursive: true });
-  }
-});
-
-Deno.test("AgentLoop - WebSearchTool registered when brave_api_key present", async () => {
-  const tmpDir = await Deno.makeTempDir();
-  try {
-    const config = makeConfig({
-      data_dir: tmpDir,
-      workspace: tmpDir,
-      web_search: { brave_api_key: "test-key-123" },
-    });
-    // Inspect what tool definitions the provider receives — if web_search is registered it appears there
-    let toolNames: string[] = [];
-    const inspectingProvider: LLMProvider = {
-      async chat(params) {
-        if (toolNames.length === 0) {
-          toolNames = ((params.tools ?? []) as Array<{ function: { name: string } }>).map((t) => t.function.name);
-        }
-        return { content: "Done", toolCalls: [], finishReason: "stop", usage: {} };
-      },
-      getDefaultModel() { return "fake"; },
-    };
-    const { bus } = makeFakeBus();
-    const loop = new AgentLoop(bus, inspectingProvider, config);
-
-    await loop.processDirect("slack", "chat1", "Search for something");
-    // web_search should appear in the tool definitions
-    assertEquals(toolNames.includes("web_search"), true);
-  } finally {
-    await Deno.remove(tmpDir, { recursive: true });
-  }
-});
-
-Deno.test("AgentLoop - WebSearchTool not registered when brave_api_key absent", async () => {
-  const tmpDir = await Deno.makeTempDir();
-  try {
-    const config = makeConfig({
-      data_dir: tmpDir,
-      workspace: tmpDir,
-      web_search: {},
-    });
-    const toolCallResults: string[] = [];
-    // Intercept tool execution by calling a web_search tool — should return "Tool not found"
-    const provider = makeFakeProvider([
-      { content: null, toolCalls: [{ id: "tc1", name: "web_search", arguments: { query: "test" } }], finishReason: "tool_calls", usage: {} },
-      { content: "Done", toolCalls: [], finishReason: "stop", usage: {} },
-    ]);
-
-    // We'll capture the tool result by looking at the messages passed to provider.chat
-    let secondCallMessages: Array<{ role: string; content: string | null }> = [];
-    let callCount = 0;
-    const capturingProvider: LLMProvider = {
-      async chat(params) {
-        callCount++;
-        if (callCount === 1) {
-          return {
-            content: null,
-            toolCalls: [{ id: "tc1", name: "web_search", arguments: { query: "test" } }],
-            finishReason: "tool_calls",
-            usage: {},
-          };
-        }
-        // Capture what was passed as messages to see tool result
-        secondCallMessages = params.messages as Array<{ role: string; content: string | null }>;
-        return { content: "Done", toolCalls: [], finishReason: "stop", usage: {} };
-      },
-      getDefaultModel() { return "fake"; },
-    };
-
-    const { bus } = makeFakeBus();
-    const loop = new AgentLoop(bus, capturingProvider, config);
-    await loop.processDirect("slack", "chat1", "Search for something");
-
-    // Find the tool result message
-    const toolResultMsg = secondCallMessages.find((m) => m.role === "tool");
-    const toolContent = typeof toolResultMsg?.content === "string" ? toolResultMsg.content : "";
-    assertStringIncludes(toolContent, "web_search");
-    assertStringIncludes(toolContent, "not found");
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }

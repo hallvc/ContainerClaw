@@ -17,13 +17,12 @@ import {
   ListDirTool,
 } from "./tools/filesystem.ts";
 import { ExecTool } from "./tools/shell.ts";
-import { WebSearchTool, WebFetchTool } from "./tools/web.ts";
+import { WebFetchTool } from "./tools/web.ts";
 
 interface SubagentConfig {
   model?: string;
   temperature?: number;
   maxTokens?: number;
-  braveApiKey?: string;
   execTimeoutMs?: number;
 }
 
@@ -36,7 +35,6 @@ export class SubagentManager {
   private model: string;
   private temperature: number;
   private maxTokens: number;
-  private braveApiKey?: string;
   private execTimeoutMs: number;
   private runningTasks: Map<string, Promise<void>> = new Map();
 
@@ -52,7 +50,6 @@ export class SubagentManager {
     this.model = config.model ?? provider.getDefaultModel();
     this.temperature = config.temperature ?? 0.7;
     this.maxTokens = config.maxTokens ?? 4096;
-    this.braveApiKey = config.braveApiKey;
     this.execTimeoutMs = config.execTimeoutMs ?? 60_000;
   }
 
@@ -181,9 +178,6 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
     tools.register(new ListDirTool(this.workspace));
     tools.register(new ExecTool(this.workspace, this.execTimeoutMs));
     tools.register(new WebFetchTool());
-    if (this.braveApiKey) {
-      tools.register(new WebSearchTool(this.braveApiKey));
-    }
     return tools;
   }
 

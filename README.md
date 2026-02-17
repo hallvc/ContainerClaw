@@ -111,12 +111,14 @@ The LLM provider is [OpenRouter](https://openrouter.ai), which gives access to m
 
 ### Web Search
 
-Optionally enable web search with a [Brave Search](https://brave.com/search/api/) API key:
+Web search is provided by [Exa](https://exa.ai/) via MCP and is enabled by default — no API key required. The agent automatically connects to Exa's hosted MCP server and gains access to `web_search_exa` and other search tools.
+
+To use your own Exa API key for higher rate limits, configure the Exa MCP server in `mcp_servers.json`:
 
 ```json
 {
-  "web_search": {
-    "brave_api_key": "BSA-xxx"
+  "exa": {
+    "url": "https://mcp.exa.ai/mcp?exaApiKey=YOUR_KEY"
   }
 }
 ```

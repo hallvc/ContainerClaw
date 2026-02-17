@@ -106,12 +106,12 @@ Deno.test("MCPToolWrapper - integrates with ToolRegistry", async () => {
 
 // --- loadMcpConfig tests ---
 
-Deno.test("loadMcpConfig - returns empty object when file missing", async () => {
+Deno.test("loadMcpConfig - returns defaults when file missing", async () => {
   const result = await loadMcpConfig("/nonexistent/path");
-  assertEquals(result, {});
+  assertEquals(result, { exa: { url: "https://mcp.exa.ai/mcp" } });
 });
 
-Deno.test("loadMcpConfig - parses valid JSON config", async () => {
+Deno.test("loadMcpConfig - merges user config with defaults", async () => {
   const tmpDir = Deno.makeTempDirSync();
   const config = {
     myserver: { command: "npx", args: ["some-server"] },
@@ -119,5 +119,5 @@ Deno.test("loadMcpConfig - parses valid JSON config", async () => {
   };
   Deno.writeTextFileSync(join(tmpDir, "mcp_servers.json"), JSON.stringify(config));
   const result = await loadMcpConfig(tmpDir);
-  assertEquals(result, config);
+  assertEquals(result, { exa: { url: "https://mcp.exa.ai/mcp" }, ...config });
 });

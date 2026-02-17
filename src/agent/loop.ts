@@ -5,7 +5,7 @@ import type { LLMProvider } from "../providers/base.ts";
 import { ToolRegistry } from "./tools/base.ts";
 import { ReadFileTool, WriteFileTool, EditFileTool, ListDirTool } from "./tools/filesystem.ts";
 import { ExecTool } from "./tools/shell.ts";
-import { WebSearchTool, WebFetchTool } from "./tools/web.ts";
+import { WebFetchTool } from "./tools/web.ts";
 import { MessageTool } from "./tools/message.ts";
 import { CronTool } from "./tools/cron.ts";
 import { SpawnTool } from "./tools/spawn.ts";
@@ -52,7 +52,6 @@ export class AgentLoop {
       model: resolveModel(config, "chat"),
       temperature: config.agents.temperature,
       maxTokens: config.agents.max_tokens,
-      braveApiKey: config.web_search.brave_api_key,
       execTimeoutMs: config.tools.exec_timeout_ms,
     });
 
@@ -74,9 +73,6 @@ export class AgentLoop {
       this.tools.register(new CronTool(this.cronService));
     }
 
-    if (this.config.web_search.brave_api_key) {
-      this.tools.register(new WebSearchTool(this.config.web_search.brave_api_key));
-    }
     this.tools.register(new WebFetchTool());
   }
 
