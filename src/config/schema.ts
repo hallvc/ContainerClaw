@@ -35,12 +35,23 @@ export const AgentsConfigSchema = z.object({
   max_iterations: z.number().int().positive().default(20),
 });
 
+export const EmailConfigSchema = z.object({
+  api_key: z.string().default(""),
+  inbox_id: z.string().default(""),
+  username: z.string().default(""),
+  domain: z.string().default(""),
+  poll_interval_seconds: z.number().int().positive().default(15),
+  policy: z.enum(["open", "allowlist"]).default("open"),
+  allow_from: z.array(z.string()).default([]),
+});
+
 export const WebSearchConfigSchema = z.object({
   brave_api_key: z.string().optional(),
 });
 
 export const ConfigSchema = z.object({
   slack: SlackConfigSchema.default({}),
+  email: EmailConfigSchema.default({}),
   openrouter: OpenRouterConfigSchema.default({}),
   agents: AgentsConfigSchema.default({}),
   web_search: WebSearchConfigSchema.default({}),
@@ -50,6 +61,7 @@ export const ConfigSchema = z.object({
 
 export type SlackDMConfig = z.infer<typeof SlackDMConfigSchema>;
 export type SlackConfig = z.infer<typeof SlackConfigSchema>;
+export type EmailConfig = z.infer<typeof EmailConfigSchema>;
 export type OpenRouterConfig = z.infer<typeof OpenRouterConfigSchema>;
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
 export type WebSearchConfig = z.infer<typeof WebSearchConfigSchema>;

@@ -7,6 +7,7 @@
     "npm:@mozilla/readability@0.5": "0.5.0",
     "npm:@slack/socket-mode@2": "2.0.5",
     "npm:@slack/web-api@7": "7.14.1",
+    "npm:agentmail@0.2": "0.2.16",
     "npm:cron-parser@4": "4.9.0",
     "npm:linkedom@0.18": "0.18.12",
     "npm:slackify-markdown@4": "4.5.0",
@@ -92,6 +93,12 @@
       "integrity": "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==",
       "dependencies": [
         "@types/node"
+      ]
+    },
+    "agentmail@0.2.16": {
+      "integrity": "sha512-N1HfanhxkTGFDAh9V+e6gRLZrUYQWJold8uCRBEIXUHjeWjH9S+Rbtwrh6XjAgHJw1FI5hLCY2zZyn6IPiZDmA==",
+      "dependencies": [
+        "ws"
       ]
     },
     "asynckit@0.4.0": {
@@ -650,6 +657,7 @@
       "npm:@mozilla/readability@0.5",
       "npm:@slack/socket-mode@2",
       "npm:@slack/web-api@7",
+      "npm:agentmail@0.2",
       "npm:cron-parser@4",
       "npm:linkedom@0.18",
       "npm:slackify-markdown@4",

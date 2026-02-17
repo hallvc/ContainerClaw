@@ -1,4 +1,4 @@
-import { ConfigSchema, type Config } from "./schema.ts";
+import { type Config, ConfigSchema } from "./schema.ts";
 
 function parseOptionalFloat(val: string | undefined): number | undefined {
   if (val === undefined) return undefined;
@@ -35,8 +35,10 @@ export function buildRawConfig(
 ): Record<string, unknown> {
   const model = env.NANOBOT_MODEL;
   return {
-    workspace: env.NANOBOT_WORKSPACE ?? (fileConfig.workspace as string | undefined),
-    data_dir: env.NANOBOT_DATA_DIR ?? (fileConfig.data_dir as string | undefined),
+    workspace: env.NANOBOT_WORKSPACE ??
+      (fileConfig.workspace as string | undefined),
+    data_dir: env.NANOBOT_DATA_DIR ??
+      (fileConfig.data_dir as string | undefined),
     slack: {
       ...((fileConfig.slack as Record<string, unknown>) ?? {}),
       ...defined({
@@ -69,6 +71,17 @@ export function buildRawConfig(
         max_iterations: parseOptionalInt(env.NANOBOT_MAX_ITERATIONS),
       }),
     },
+    email: {
+      ...((fileConfig.email as Record<string, unknown>) ?? {}),
+      ...defined({
+        api_key: env.AGENTMAIL_API_KEY,
+        inbox_id: env.AGENTMAIL_INBOX_ID,
+        username: env.AGENTMAIL_USERNAME,
+        domain: env.AGENTMAIL_DOMAIN,
+        poll_interval_seconds: parseOptionalInt(env.AGENTMAIL_POLL_INTERVAL),
+        policy: env.AGENTMAIL_POLICY,
+      }),
+    },
     web_search: {
       ...((fileConfig.web_search as Record<string, unknown>) ?? {}),
       ...defined({
@@ -95,6 +108,12 @@ export async function loadConfig(): Promise<Config> {
     SLACK_GROUP_POLICY: Deno.env.get("SLACK_GROUP_POLICY"),
     OPENROUTER_API_KEY: Deno.env.get("OPENROUTER_API_KEY"),
     BRAVE_API_KEY: Deno.env.get("BRAVE_API_KEY"),
+    AGENTMAIL_API_KEY: Deno.env.get("AGENTMAIL_API_KEY"),
+    AGENTMAIL_INBOX_ID: Deno.env.get("AGENTMAIL_INBOX_ID"),
+    AGENTMAIL_USERNAME: Deno.env.get("AGENTMAIL_USERNAME"),
+    AGENTMAIL_DOMAIN: Deno.env.get("AGENTMAIL_DOMAIN"),
+    AGENTMAIL_POLL_INTERVAL: Deno.env.get("AGENTMAIL_POLL_INTERVAL"),
+    AGENTMAIL_POLICY: Deno.env.get("AGENTMAIL_POLICY"),
   };
   const raw = buildRawConfig(env, fileConfig);
   const clean = JSON.parse(JSON.stringify(raw));

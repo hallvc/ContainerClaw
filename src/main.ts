@@ -4,6 +4,7 @@ import { MessageBus } from "./bus/queue.ts";
 import { OpenRouterProvider } from "./providers/openrouter.ts";
 import { AgentLoop } from "./agent/loop.ts";
 import { SlackChannel } from "./channels/slack.ts";
+import { EmailChannel } from "./channels/email.ts";
 import { ChannelManager } from "./channels/manager.ts";
 import { CronService } from "./cron/service.ts";
 
@@ -18,41 +19,70 @@ async function main(): Promise<void> {
     console.error("OPENROUTER_API_KEY is required");
     Deno.exit(1);
   }
-  if (!config.slack.bot_token || !config.slack.app_token) {
-    console.error("SLACK_BOT_TOKEN and SLACK_APP_TOKEN are required");
+  // Validate at least one channel is configured
+  const hasSlack = !!(config.slack.bot_token && config.slack.app_token);
+  const hasEmail = !!config.email.api_key;
+
+  if (!hasSlack && !hasEmail) {
+    console.error("At least one channel must be configured (Slack or Email)");
     Deno.exit(1);
   }
 
   // Create core components
   const bus = new MessageBus();
-  const provider = new OpenRouterProvider(config.openrouter.api_key, config.openrouter.default_model);
+  const provider = new OpenRouterProvider(
+    config.openrouter.api_key,
+    config.openrouter.default_model,
+  );
   const agent = new AgentLoop(bus, provider, config);
 
-  // Create Slack channel
-  const slackChannel = new SlackChannel(
-    {
-      botToken: config.slack.bot_token,
-      appToken: config.slack.app_token,
-      groupPolicy: config.slack.group_policy,
-      groupAllowFrom: config.slack.group_allow_from,
-      dm: {
-        enabled: config.slack.dm.enabled,
-        policy: config.slack.dm.policy,
-        allowFrom: config.slack.dm.allow_from,
-      },
-    },
-    bus,
-  );
-
   const channelManager = new ChannelManager(bus);
-  channelManager.addChannel(slackChannel);
+
+  if (hasSlack) {
+    const slackChannel = new SlackChannel(
+      {
+        botToken: config.slack.bot_token,
+        appToken: config.slack.app_token,
+        groupPolicy: config.slack.group_policy,
+        groupAllowFrom: config.slack.group_allow_from,
+        dm: {
+          enabled: config.slack.dm.enabled,
+          policy: config.slack.dm.policy,
+          allowFrom: config.slack.dm.allow_from,
+        },
+      },
+      bus,
+    );
+    channelManager.addChannel(slackChannel);
+  }
+
+  if (hasEmail) {
+    const emailChannel = new EmailChannel(
+      {
+        apiKey: config.email.api_key,
+        inboxId: config.email.inbox_id,
+        username: config.email.username,
+        domain: config.email.domain,
+        pollIntervalSeconds: config.email.poll_interval_seconds,
+        policy: config.email.policy,
+        allowFrom: config.email.allow_from,
+        dataDir: config.data_dir,
+      },
+      bus,
+    );
+    channelManager.addChannel(emailChannel);
+  }
 
   // Create cron service
   const cron = new CronService(config.data_dir);
   cron.setCallback(async (job) => {
     console.log(`Cron executing: ${job.name}`);
     try {
-      const response = await agent.processDirect(job.channel, job.chatId, job.command);
+      const response = await agent.processDirect(
+        job.channel,
+        job.chatId,
+        job.command,
+      );
       await bus.publishOutbound({
         channel: job.channel,
         chatId: job.chatId,
@@ -76,8 +106,12 @@ async function main(): Promise<void> {
     Deno.exit(0);
   };
 
-  Deno.addSignalListener("SIGINT", () => { shutdown(); });
-  Deno.addSignalListener("SIGTERM", () => { shutdown(); });
+  Deno.addSignalListener("SIGINT", () => {
+    shutdown();
+  });
+  Deno.addSignalListener("SIGTERM", () => {
+    shutdown();
+  });
 
   console.log(`Model (chat): ${resolveModel(config, "chat")}`);
   console.log(`Model (memory): ${resolveModel(config, "memory")}`);

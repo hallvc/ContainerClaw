@@ -5,10 +5,17 @@ services:
     environment:
       # Required: OpenRouter API key for LLM access
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      # Required: Slack bot token (xoxb-...)
-      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
-      # Required: Slack app-level token (xapp-...)
-      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
+      # Slack channel (optional, at least one channel required)
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN:-}
+      - SLACK_GROUP_POLICY=${SLACK_GROUP_POLICY:-mention}
+      # Email channel via AgentMail (optional, at least one channel required)
+      - AGENTMAIL_API_KEY=${AGENTMAIL_API_KEY:-}
+      - AGENTMAIL_INBOX_ID=${AGENTMAIL_INBOX_ID:-}
+      - AGENTMAIL_USERNAME=${AGENTMAIL_USERNAME:-}
+      - AGENTMAIL_DOMAIN=${AGENTMAIL_DOMAIN:-}
+      - AGENTMAIL_POLL_INTERVAL=${AGENTMAIL_POLL_INTERVAL:-15}
+      - AGENTMAIL_POLICY=${AGENTMAIL_POLICY:-open}
       # Optional: Default model for all roles (defaults to minimax/minimax-m2.5)
       - NANOBOT_MODEL=${NANOBOT_MODEL:-minimax/minimax-m2.5}
       # Optional: Override model for chat (agent loop) only
@@ -17,8 +24,6 @@ services:
       - NANOBOT_MODEL_MEMORY=${NANOBOT_MODEL_MEMORY:-}
       # Optional: Brave Search API key for web_search tool
       - BRAVE_API_KEY=${BRAVE_API_KEY:-}
-      # Optional: Slack group policy (mention|open|allowlist, defaults to mention)
-      - SLACK_GROUP_POLICY=${SLACK_GROUP_POLICY:-mention}
     volumes:
       # Persistent data: sessions, memory, cron jobs
       - nanobot-data:/data
