@@ -124,6 +124,7 @@ async function main(): Promise<void> {
     cron.stop();
     heartbeat.stop();
     bus.stop();
+    await agent.closeMcp();
     await channelManager.stopAll();
     console.log("Shutdown complete");
     Deno.exit(0);

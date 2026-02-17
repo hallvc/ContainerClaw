@@ -8,6 +8,7 @@ import { ExecTool } from "./tools/shell.ts";
 import { WebSearchTool, WebFetchTool } from "./tools/web.ts";
 import { MessageTool } from "./tools/message.ts";
 import { CronTool } from "./tools/cron.ts";
+import { connectMcpServers, loadMcpConfig } from "./tools/mcp.ts";
 import type { CronService } from "../cron/service.ts";
 import { SessionManager } from "../session/manager.ts";
 import type { Session } from "../session/manager.ts";
@@ -27,6 +28,8 @@ export class AgentLoop {
   private config: Config;
   private cronService?: CronService;
   private _running = false;
+  private _mcpConnected = false;
+  private _mcpCleanup: Array<() => Promise<void>> = [];
 
   constructor(
     bus: MessageBus,
@@ -66,6 +69,20 @@ export class AgentLoop {
     this.tools.register(new WebFetchTool());
   }
 
+  private async connectMcp(): Promise<void> {
+    if (this._mcpConnected) return;
+    this._mcpConnected = true;
+    const mcpServers = await loadMcpConfig(this.config.workspace);
+    if (Object.keys(mcpServers).length === 0) return;
+    this._mcpCleanup = await connectMcpServers(mcpServers, this.tools);
+  }
+
+  async closeMcp(): Promise<void> {
+    for (const fn of this._mcpCleanup) {
+      try { await fn(); } catch { /* ignore cleanup errors */ }
+    }
+  }
+
   private setToolContext(channel: string, chatId: string): void {
     const msgTool = this.tools.get("message");
     if (msgTool && "setContext" in msgTool) {
@@ -82,6 +99,7 @@ export class AgentLoop {
     await this.skills.seedDefaultSkills().catch((e) =>
       console.error("Skill seeding error:", e)
     );
+    await this.connectMcp();
     console.log("Agent loop started");
 
     while (this._running) {
@@ -262,6 +280,7 @@ Write an updated MEMORY.md that preserves important existing facts and adds any 
     chatId: string,
     content: string,
   ): Promise<string> {
+    await this.connectMcp();
     const context = new ContextBuilder(this.config.workspace, this.memory, this.skills);
     const messages = await context.buildMessages([], content, []);
     return await this.runAgentLoop(context, messages);
