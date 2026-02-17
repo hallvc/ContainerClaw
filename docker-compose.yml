@@ -9,8 +9,12 @@ services:
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
       # Required: Slack app-level token (xapp-...)
       - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
-      # Optional: Default model (defaults to anthropic/claude-sonnet-4-5)
-      - NANOBOT_MODEL=${NANOBOT_MODEL:-anthropic/claude-sonnet-4-5}
+      # Optional: Default model for all roles (defaults to minimax/minimax-m2.5)
+      - NANOBOT_MODEL=${NANOBOT_MODEL:-minimax/minimax-m2.5}
+      # Optional: Override model for chat (agent loop) only
+      - NANOBOT_MODEL_CHAT=${NANOBOT_MODEL_CHAT:-}
+      # Optional: Override model for memory consolidation only
+      - NANOBOT_MODEL_MEMORY=${NANOBOT_MODEL_MEMORY:-}
       # Optional: Brave Search API key for web_search tool
       - BRAVE_API_KEY=${BRAVE_API_KEY:-}
       # Optional: Slack group policy (mention|open|allowlist, defaults to mention)

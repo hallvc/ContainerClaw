@@ -1,4 +1,5 @@
 import { loadConfig } from "./config/loader.ts";
+import { resolveModel } from "./config/models.ts";
 import { MessageBus } from "./bus/queue.ts";
 import { OpenRouterProvider } from "./providers/openrouter.ts";
 import { AgentLoop } from "./agent/loop.ts";
@@ -78,7 +79,8 @@ async function main(): Promise<void> {
   Deno.addSignalListener("SIGINT", () => { shutdown(); });
   Deno.addSignalListener("SIGTERM", () => { shutdown(); });
 
-  console.log(`Model: ${config.openrouter.default_model}`);
+  console.log(`Model (chat): ${resolveModel(config, "chat")}`);
+  console.log(`Model (memory): ${resolveModel(config, "memory")}`);
   console.log(`Workspace: ${config.workspace}`);
   console.log(`Data dir: ${config.data_dir}`);
 

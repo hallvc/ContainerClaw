@@ -55,13 +55,15 @@ Deno.test("AgentsConfigSchema - defaults match Python reference", () => {
   assertEquals(agents.max_tokens, 4096);
   assertEquals(agents.memory_window, 50);
   assertEquals(agents.max_iterations, 20);
-  assertEquals(agents.model, undefined);
+  assertEquals(agents.models.default, undefined);
+  assertEquals(agents.models.chat, undefined);
+  assertEquals(agents.models.memory, undefined);
 });
 
 Deno.test("OpenRouterConfigSchema - defaults", () => {
   const or_ = OpenRouterConfigSchema.parse({});
   assertEquals(or_.api_key, "");
-  assertEquals(or_.default_model, "anthropic/claude-sonnet-4-5");
+  assertEquals(or_.default_model, "minimax/minimax-m2.5");
 });
 
 Deno.test("ConfigSchema - Docker-friendly defaults", () => {

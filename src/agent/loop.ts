@@ -12,6 +12,7 @@ import type { Session } from "../session/manager.ts";
 import { MemoryStore } from "./memory.ts";
 import { ContextBuilder } from "./context.ts";
 import type { Config } from "../config/schema.ts";
+import { resolveModel } from "../config/models.ts";
 
 export class AgentLoop {
   private bus: MessageBus;
@@ -151,6 +152,7 @@ export class AgentLoop {
       const response = await this.provider.chat({
         messages,
         tools: this.tools.getDefinitions(),
+        model: resolveModel(this.config, "chat"),
         maxTokens: this.config.agents.max_tokens,
         temperature: this.config.agents.temperature,
       });
@@ -209,6 +211,7 @@ Write an updated MEMORY.md that preserves important existing facts and adds any 
 
       const response = await this.provider.chat({
         messages: [{ role: "user", content: consolidationPrompt }],
+        model: resolveModel(this.config, "memory"),
         maxTokens: 2000,
         temperature: 0.3,
       });

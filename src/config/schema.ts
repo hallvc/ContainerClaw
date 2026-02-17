@@ -16,11 +16,19 @@ export const SlackConfigSchema = z.object({
 
 export const OpenRouterConfigSchema = z.object({
   api_key: z.string().default(""),
-  default_model: z.string().default("anthropic/claude-sonnet-4-5"),
+  default_model: z.string().default("minimax/minimax-m2.5"),
 });
 
+export const ModelRolesSchema = z.object({
+  default: z.string().optional(),
+  chat: z.string().optional(),
+  memory: z.string().optional(),
+});
+
+export type ModelRole = keyof z.infer<typeof ModelRolesSchema>;
+
 export const AgentsConfigSchema = z.object({
-  model: z.string().optional(),
+  models: ModelRolesSchema.default({}),
   temperature: z.number().min(0).max(2).default(0.7),
   max_tokens: z.number().int().positive().default(4096),
   memory_window: z.number().int().positive().default(50),

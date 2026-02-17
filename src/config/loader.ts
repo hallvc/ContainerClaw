@@ -54,8 +54,15 @@ export function buildRawConfig(
     },
     agents: {
       ...((fileConfig.agents as Record<string, unknown>) ?? {}),
+      models: {
+        ...(((fileConfig.agents as Record<string, unknown>)?.models as Record<string, unknown>) ?? {}),
+        ...defined({
+          default: model,
+          chat: env.NANOBOT_MODEL_CHAT,
+          memory: env.NANOBOT_MODEL_MEMORY,
+        }),
+      },
       ...defined({
-        model,
         temperature: parseOptionalFloat(env.NANOBOT_TEMPERATURE),
         max_tokens: parseOptionalInt(env.NANOBOT_MAX_TOKENS),
         memory_window: parseOptionalInt(env.NANOBOT_MEMORY_WINDOW),
@@ -75,6 +82,8 @@ export async function loadConfig(): Promise<Config> {
   const fileConfig = await readFileConfig("/data/config.json");
   const env: Record<string, string | undefined> = {
     NANOBOT_MODEL: Deno.env.get("NANOBOT_MODEL"),
+    NANOBOT_MODEL_CHAT: Deno.env.get("NANOBOT_MODEL_CHAT"),
+    NANOBOT_MODEL_MEMORY: Deno.env.get("NANOBOT_MODEL_MEMORY"),
     NANOBOT_WORKSPACE: Deno.env.get("NANOBOT_WORKSPACE"),
     NANOBOT_DATA_DIR: Deno.env.get("NANOBOT_DATA_DIR"),
     NANOBOT_TEMPERATURE: Deno.env.get("NANOBOT_TEMPERATURE"),

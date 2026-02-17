@@ -24,7 +24,7 @@ Deno.test("loadConfig - env vars override file config", () => {
   };
   const fileConfig: Record<string, unknown> = {
     slack: { bot_token: "file-bot-token" },
-    agents: { temperature: 0.9, max_tokens: 8192, model: "file-model" },
+    agents: { temperature: 0.9, max_tokens: 8192, models: { default: "file-model" } },
     openrouter: { default_model: "file-or-model" },
   };
   const raw = buildRawConfig(env, fileConfig);
@@ -33,7 +33,44 @@ Deno.test("loadConfig - env vars override file config", () => {
   assertEquals(config.slack.bot_token, "env-bot-token");
   assertEquals(config.agents.temperature, 0.3);
   assertEquals(config.agents.max_tokens, 2048);
-  assertEquals(config.agents.model, "env-model");
+  assertEquals(config.agents.models.default, "env-model");
+  assertEquals(config.openrouter.default_model, "env-model");
+});
+
+Deno.test("loadConfig - NANOBOT_MODEL_CHAT maps to agents.models.chat", () => {
+  const env: Record<string, string | undefined> = {
+    NANOBOT_MODEL_CHAT: "chat-model",
+  };
+  const raw = buildRawConfig(env, emptyFile);
+  const config = ConfigSchema.parse(JSON.parse(JSON.stringify(raw)));
+
+  assertEquals(config.agents.models.chat, "chat-model");
+  assertEquals(config.agents.models.memory, undefined);
+});
+
+Deno.test("loadConfig - NANOBOT_MODEL_MEMORY maps to agents.models.memory", () => {
+  const env: Record<string, string | undefined> = {
+    NANOBOT_MODEL_MEMORY: "memory-model",
+  };
+  const raw = buildRawConfig(env, emptyFile);
+  const config = ConfigSchema.parse(JSON.parse(JSON.stringify(raw)));
+
+  assertEquals(config.agents.models.memory, "memory-model");
+  assertEquals(config.agents.models.chat, undefined);
+});
+
+Deno.test("loadConfig - per-role env vars override file config models", () => {
+  const env: Record<string, string | undefined> = {
+    NANOBOT_MODEL_MEMORY: "env-memory",
+  };
+  const fileConfig: Record<string, unknown> = {
+    agents: { models: { memory: "file-memory", chat: "file-chat" } },
+  };
+  const raw = buildRawConfig(env, fileConfig);
+  const config = ConfigSchema.parse(JSON.parse(JSON.stringify(raw)));
+
+  assertEquals(config.agents.models.memory, "env-memory");
+  assertEquals(config.agents.models.chat, "file-chat");
 });
 
 Deno.test("loadConfig - file config used as fallback", () => {
