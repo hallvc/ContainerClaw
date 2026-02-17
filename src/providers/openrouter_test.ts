@@ -487,3 +487,37 @@ Deno.test("OpenRouterProvider - chat handles missing usage", async () => {
     stub.restore();
   }
 });
+
+// ---------------------------------------------------------------------------
+// 14. Repairable tool arguments (json-repair)
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat repairs malformed tool arguments", async () => {
+  const stub = stubFetch(makeResponseBody({
+    content: null,
+    finish_reason: "tool_calls",
+    tool_calls: [
+      {
+        id: "call_repair",
+        function: {
+          name: "some_tool",
+          arguments: "{'key': 'value', 'num': 42,}",
+        },
+      },
+    ],
+  }));
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.toolCalls.length, 1);
+    assertEquals(result.toolCalls[0].id, "call_repair");
+    assertEquals(result.toolCalls[0].name, "some_tool");
+    assertEquals(result.toolCalls[0].arguments, { key: "value", num: 42 });
+  } finally {
+    stub.restore();
+  }
+});

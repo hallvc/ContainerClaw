@@ -1,4 +1,5 @@
 import type { LLMProvider, LLMResponse, ToolCallRequest } from "./base.ts";
+import { jsonrepair } from "jsonrepair";
 
 const API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -31,7 +32,11 @@ function parseToolArguments(raw: string): Record<string, unknown> {
   try {
     return JSON.parse(raw);
   } catch {
-    return {};
+    try {
+      return JSON.parse(jsonrepair(raw));
+    } catch {
+      return {};
+    }
   }
 }
 

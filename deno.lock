@@ -11,6 +11,7 @@
     "npm:agentmail@0.2": "0.2.16",
     "npm:cron-parser@4": "4.9.0",
     "npm:grammy@1": "1.40.0",
+    "npm:jsonrepair@3": "3.13.2",
     "npm:linkedom@0.18": "0.18.12",
     "npm:slackify-markdown@4": "4.5.0",
     "npm:zod@3": "3.25.76"
@@ -599,6 +600,10 @@
     "json-schema-typed@8.0.2": {
       "integrity": "sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA=="
     },
+    "jsonrepair@3.13.2": {
+      "integrity": "sha512-Leuly0nbM4R+S5SVJk3VHfw1oxnlEK9KygdZvfUtEtTawNDyzB4qa1xWTmFt1aeoA7sXZkVTRuIixJ8bAvqVUg==",
+      "bin": true
+    },
     "linkedom@0.18.12": {
       "integrity": "sha512-jalJsOwIKuQJSeTvsgzPe9iJzyfVaEJiEXl+25EkKevsULHvMJzpNqwvj1jOESWdmgKDiXObyjOYwlUqG7wo1Q==",
       "dependencies": [
@@ -1135,6 +1140,7 @@
       "npm:agentmail@0.2",
       "npm:cron-parser@4",
       "npm:grammy@1",
+      "npm:jsonrepair@3",
       "npm:linkedom@0.18",
       "npm:slackify-markdown@4",
       "npm:zod@3"

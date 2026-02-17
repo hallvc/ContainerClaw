@@ -12,7 +12,8 @@
     "@std/fs": "jsr:@std/fs@^1",
     "@std/assert": "jsr:@std/assert@^1",
     "agentmail": "npm:agentmail@^0.2",
-    "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk"
+    "@modelcontextprotocol/sdk": "npm:@modelcontextprotocol/sdk",
+    "jsonrepair": "npm:jsonrepair@3"
   },
   "compilerOptions": {
     "strict": true,
