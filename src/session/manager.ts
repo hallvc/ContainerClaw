@@ -9,6 +9,7 @@ export interface SessionMessage {
   content: string;
   timestamp: string;
   toolsUsed?: string[];
+  [key: string]: unknown;
 }
 
 export interface Session {
@@ -17,8 +18,9 @@ export interface Session {
   lastConsolidated: number;
   createdAt: string;
   updatedAt: string;
+  metadata: Record<string, unknown>;
 
-  addMessage(role: string, content: string, toolsUsed?: string[]): void;
+  addMessage(role: string, content: string, toolsUsed?: string[], extras?: Record<string, unknown>): void;
   clear(): void;
   getHistory(maxMessages: number): Array<{ role: string; content: string }>;
 }
@@ -29,6 +31,7 @@ class SessionImpl implements Session {
   lastConsolidated: number;
   createdAt: string;
   updatedAt: string;
+  metadata: Record<string, unknown>;
 
   constructor(data: {
     key: string;
@@ -36,26 +39,30 @@ class SessionImpl implements Session {
     lastConsolidated: number;
     createdAt: string;
     updatedAt: string;
+    metadata?: Record<string, unknown>;
   }) {
     this.key = data.key;
     this.messages = data.messages;
     this.lastConsolidated = data.lastConsolidated;
     this.createdAt = data.createdAt;
     this.updatedAt = data.updatedAt;
+    this.metadata = data.metadata ?? {};
   }
 
-  addMessage(role: string, content: string, toolsUsed?: string[]): void {
+  addMessage(role: string, content: string, toolsUsed?: string[], extras?: Record<string, unknown>): void {
     this.messages.push({
       role,
       content,
       timestamp: new Date().toISOString(),
       ...(toolsUsed !== undefined ? { toolsUsed } : {}),
-    });
+      ...(extras ?? {}),
+    } as SessionMessage);
     this.updatedAt = new Date().toISOString();
   }
 
   clear(): void {
     this.messages = [];
+    this.lastConsolidated = 0;
     this.updatedAt = new Date().toISOString();
   }
 
@@ -84,6 +91,10 @@ export class SessionManager {
   }
 
   private sessionPath(key: string): string {
+    return join(this.sessionsDir(), `${sanitizeKey(key)}.jsonl`);
+  }
+
+  private legacySessionPath(key: string): string {
     return join(this.sessionsDir(), `${sanitizeKey(key)}.json`);
   }
 
@@ -107,24 +118,35 @@ export class SessionManager {
     let session: SessionImpl;
     try {
       const raw = Deno.readTextFileSync(path);
-      const data = JSON.parse(raw);
-      session = new SessionImpl({
-        key: data.key ?? key,
-        messages: data.messages ?? [],
-        lastConsolidated: data.lastConsolidated ?? 0,
-        createdAt: data.createdAt ?? new Date().toISOString(),
-        updatedAt: data.updatedAt ?? new Date().toISOString(),
-      });
+      session = this.parseJsonl(key, raw);
     } catch (err) {
       if (err instanceof Deno.errors.NotFound) {
-        const now = new Date().toISOString();
-        session = new SessionImpl({
-          key,
-          messages: [],
-          lastConsolidated: 0,
-          createdAt: now,
-          updatedAt: now,
-        });
+        // Try legacy .json fallback
+        try {
+          const legacyRaw = Deno.readTextFileSync(this.legacySessionPath(key));
+          const data = JSON.parse(legacyRaw);
+          session = new SessionImpl({
+            key: data.key ?? key,
+            messages: data.messages ?? [],
+            lastConsolidated: data.lastConsolidated ?? 0,
+            createdAt: data.createdAt ?? new Date().toISOString(),
+            updatedAt: data.updatedAt ?? new Date().toISOString(),
+            metadata: data.metadata ?? {},
+          });
+        } catch (legacyErr) {
+          if (legacyErr instanceof Deno.errors.NotFound) {
+            const now = new Date().toISOString();
+            session = new SessionImpl({
+              key,
+              messages: [],
+              lastConsolidated: 0,
+              createdAt: now,
+              updatedAt: now,
+            });
+          } else {
+            throw legacyErr;
+          }
+        }
       } else {
         throw err;
       }
@@ -137,14 +159,86 @@ export class SessionManager {
   save(session: Session): void {
     this.ensureSessionsDir();
     const path = this.sessionPath(session.key);
-    const data = {
-      key: session.key,
-      messages: session.messages,
-      lastConsolidated: session.lastConsolidated,
-      createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
-    };
-    Deno.writeTextFileSync(path, JSON.stringify(data, null, 2));
+    const metadataLine = JSON.stringify({
+      _type: "metadata",
+      created_at: session.createdAt,
+      updated_at: session.updatedAt,
+      metadata: session.metadata,
+      last_consolidated: session.lastConsolidated,
+    });
+    const lines = [metadataLine];
+    for (const msg of session.messages) {
+      lines.push(JSON.stringify(msg));
+    }
+    Deno.writeTextFileSync(path, lines.join("\n") + "\n");
+
+    // Remove legacy .json file if it exists
+    try {
+      Deno.removeSync(this.legacySessionPath(session.key));
+    } catch {
+      // Ignore - legacy file may not exist
+    }
+
+    this.cache.set(session.key, session as SessionImpl);
+  }
+
+  private parseJsonl(key: string, raw: string): SessionImpl {
+    const lines = raw.split("\n").filter((l) => l.trim() !== "");
+    const now = new Date().toISOString();
+    let createdAt = now;
+    let updatedAt = now;
+    let metadata: Record<string, unknown> = {};
+    let lastConsolidated = 0;
+    const messages: SessionMessage[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const data = JSON.parse(lines[i]);
+      if (data._type === "metadata") {
+        createdAt = data.created_at ?? now;
+        updatedAt = data.updated_at ?? now;
+        metadata = data.metadata ?? {};
+        lastConsolidated = data.last_consolidated ?? 0;
+      } else {
+        messages.push(data as SessionMessage);
+      }
+    }
+
+    return new SessionImpl({
+      key,
+      messages,
+      lastConsolidated,
+      createdAt,
+      updatedAt,
+      metadata,
+    });
+  }
+
+  listSessions(): Array<{ key: string; createdAt: string; updatedAt: string; path: string }> {
+    this.ensureSessionsDir();
+    const sessions: Array<{ key: string; createdAt: string; updatedAt: string; path: string }> = [];
+
+    for (const entry of Deno.readDirSync(this.sessionsDir())) {
+      if (!entry.isFile || !entry.name.endsWith(".jsonl")) continue;
+      const filePath = join(this.sessionsDir(), entry.name);
+      try {
+        const raw = Deno.readTextFileSync(filePath);
+        const firstLine = raw.split("\n")[0];
+        if (!firstLine) continue;
+        const data = JSON.parse(firstLine);
+        if (data._type !== "metadata") continue;
+        const stem = entry.name.replace(/\.jsonl$/, "");
+        sessions.push({
+          key: stem.replace(/_/g, ":"),
+          createdAt: data.created_at ?? "",
+          updatedAt: data.updated_at ?? "",
+          path: filePath,
+        });
+      } catch {
+        continue;
+      }
+    }
+
+    return sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   invalidate(key: string): void {
