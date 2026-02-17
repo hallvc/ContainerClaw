@@ -1,3 +1,4 @@
+import { join } from "@std/path";
 import { type Config, ConfigSchema } from "./schema.ts";
 
 function parseOptionalFloat(val: string | undefined): number | undefined {
@@ -114,8 +115,39 @@ export function buildRawConfig(
   };
 }
 
-export async function loadConfig(): Promise<Config> {
-  const fileConfig = await readFileConfig("/data/config.json");
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await Deno.stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveConfigPath(
+  explicitPath?: string,
+): Promise<string> {
+  if (explicitPath) return explicitPath;
+
+  const envPath = Deno.env.get("NANOBOT_CONFIG_PATH");
+  if (envPath) return envPath;
+
+  const candidates = [
+    "/data/config.json",
+    join(Deno.env.get("HOME") ?? "", ".nanobot", "config.json"),
+  ];
+
+  for (const candidate of candidates) {
+    if (await fileExists(candidate)) return candidate;
+  }
+
+  // Default to /data/config.json (Docker default) even if it doesn't exist
+  return "/data/config.json";
+}
+
+export async function loadConfig(configPath?: string): Promise<Config> {
+  const resolvedPath = await resolveConfigPath(configPath);
+  const fileConfig = await readFileConfig(resolvedPath);
   const env: Record<string, string | undefined> = {
     NANOBOT_MODEL: Deno.env.get("NANOBOT_MODEL"),
     NANOBOT_MODEL_CHAT: Deno.env.get("NANOBOT_MODEL_CHAT"),
