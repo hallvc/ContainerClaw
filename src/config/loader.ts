@@ -1,5 +1,6 @@
-import { join } from "@std/path";
+import { dirname, join } from "@std/path";
 import { type Config, ConfigSchema } from "./schema.ts";
+import { loadDotenv } from "./dotenv.ts";
 
 function parseOptionalFloat(val: string | undefined): number | undefined {
   if (val === undefined) return undefined;
@@ -147,6 +148,7 @@ export async function resolveConfigPath(
 
 export async function loadConfig(configPath?: string): Promise<Config> {
   const resolvedPath = await resolveConfigPath(configPath);
+  await loadDotenv(dirname(resolvedPath));
   const fileConfig = await readFileConfig(resolvedPath);
   const env: Record<string, string | undefined> = {
     NANOBOT_MODEL: Deno.env.get("NANOBOT_MODEL"),

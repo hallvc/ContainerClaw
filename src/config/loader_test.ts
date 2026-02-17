@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
+import { join } from "@std/path";
 import { ConfigSchema } from "./schema.ts";
-import { buildRawConfig, resolveConfigPath } from "./loader.ts";
+import { buildRawConfig, loadConfig, resolveConfigPath } from "./loader.ts";
 
 const emptyEnv: Record<string, string | undefined> = {};
 const emptyFile: Record<string, unknown> = {};
@@ -176,5 +177,40 @@ Deno.test("resolveConfigPath - returns /data/config.json as default when no env 
     assertEquals(typeof result, "string");
   } finally {
     if (original) Deno.env.set("NANOBOT_CONFIG_PATH", original);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// .env integration test
+// ---------------------------------------------------------------------------
+
+Deno.test("loadConfig - .env file values flow through to final Config", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  const key = "OPENROUTER_API_KEY";
+  const originalKey = Deno.env.get(key);
+  const originalDotenvPath = Deno.env.get("NANOBOT_DOTENV_PATH");
+  try {
+    // Write a minimal config.json
+    const configPath = join(tmpDir, "config.json");
+    await Deno.writeTextFile(configPath, "{}");
+
+    // Write a .env file next to config.json
+    await Deno.writeTextFile(
+      join(tmpDir, ".env"),
+      `${key}=sk-from-dotenv\n`,
+    );
+
+    // Clear any existing env value so .env can set it
+    Deno.env.delete(key);
+    Deno.env.delete("NANOBOT_DOTENV_PATH");
+
+    const config = await loadConfig(configPath);
+    assertEquals(config.openrouter.api_key, "sk-from-dotenv");
+  } finally {
+    if (originalKey) Deno.env.set(key, originalKey);
+    else Deno.env.delete(key);
+    if (originalDotenvPath) Deno.env.set("NANOBOT_DOTENV_PATH", originalDotenvPath);
+    else Deno.env.delete("NANOBOT_DOTENV_PATH");
+    await Deno.remove(tmpDir, { recursive: true });
   }
 });
