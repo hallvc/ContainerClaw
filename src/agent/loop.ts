@@ -9,6 +9,7 @@ import { WebFetchTool } from "./tools/web.ts";
 import { MessageTool } from "./tools/message.ts";
 import { CronTool } from "./tools/cron.ts";
 import { SpawnTool } from "./tools/spawn.ts";
+import { LearnTool } from "./tools/learn.ts";
 import { connectMcpServers, loadMcpConfig } from "./tools/mcp.ts";
 import type { CronService } from "../cron/service.ts";
 import { SubagentManager } from "./subagent.ts";
@@ -74,6 +75,7 @@ export class AgentLoop {
     }
 
     this.tools.register(new WebFetchTool());
+    this.tools.register(new LearnTool(this.memory));
   }
 
   private async connectMcp(): Promise<void> {
@@ -111,6 +113,19 @@ export class AgentLoop {
       console.error("Skill seeding error:", e)
     );
     await this.connectMcp();
+
+    // Ensure memory directory structure exists
+    await this.memory.ensureDirectories().catch((e) =>
+      console.error("Memory directory setup error:", e)
+    );
+
+    // Rebuild memory index if stale
+    if (await this.memory.isIndexStale().catch(() => true)) {
+      await this.memory.rebuildIndex().catch((e) =>
+        console.error("Memory index rebuild error:", e)
+      );
+    }
+
     console.log("Agent loop started");
 
     while (this._running) {
@@ -180,15 +195,17 @@ export class AgentLoop {
     session.addMessage("assistant", response);
     this.sessions.save(session);
 
-    // Append to history log
-    await this.memory.appendHistory(`[${msg.channel}:${msg.chatId}] User: ${msg.content}`);
-    await this.memory.appendHistory(`[${msg.channel}:${msg.chatId}] Assistant: ${response.slice(0, 200)}`);
+    // Legacy history log (daily notes populated by Tier 1 extraction instead)
+    const source = `${msg.channel}:${msg.chatId}`;
+    const truncatedResponse = response.length > 200 ? response.slice(0, 200) + "..." : response;
+    await this.memory.appendHistory(`[${source}] User: ${msg.content}`);
+    await this.memory.appendHistory(`[${source}] Assistant: ${truncatedResponse}`);
 
-    // Check if consolidation is needed
+    // Check if extraction to daily note is needed (Tier 1 consolidation)
     const messageCount = session.messages.length;
     const sinceConsolidation = messageCount - session.lastConsolidated;
-    if (sinceConsolidation >= this.config.agents.memory_window) {
-      await this.consolidateMemory(session, sessionKey);
+    if (sinceConsolidation >= this.config.agents.consolidation_threshold) {
+      await this.extractToDaily(session, sessionKey, source);
     }
 
     // Publish response
@@ -287,43 +304,117 @@ export class AgentLoop {
     return lastContent || "I reached the maximum number of iterations. Here's what I have so far.";
   }
 
-  private async consolidateMemory(
+  /**
+   * Tier 1 consolidation: Extract noteworthy facts from recent conversation
+   * into today's daily note. Does NOT rewrite MEMORY.md.
+   */
+  private async extractToDaily(
     session: Session,
     sessionKey: string,
+    source: string,
   ): Promise<void> {
     try {
-      const existingMemory = await this.memory.readLongTerm();
       const recentMessages = session.messages
         .slice(session.lastConsolidated)
         .map((m) => `${m.role}: ${m.content}`)
         .join("\n");
 
-      const consolidationPrompt = `You are a memory consolidation assistant. Given the existing long-term memory and recent conversation, update the memory with any important facts, preferences, or context worth remembering.
-
-## Existing Memory
-${existingMemory || "(empty)"}
+      const extractionPrompt = `You are a memory extraction assistant. Extract noteworthy facts, decisions, preferences, and TODOs from this conversation.
 
 ## Recent Conversation
 ${recentMessages}
 
 ## Instructions
-Write an updated MEMORY.md that preserves important existing facts and adds any new ones from the recent conversation. Be concise — only store facts worth remembering long-term. Output ONLY the memory content, no explanation.`;
+Output a bulleted list of important items worth remembering. Each bullet should be a single clear fact or decision. Include:
+- User preferences stated or implied
+- Decisions made
+- Technical facts learned
+- TODOs or action items mentioned
+- People, projects, or tools referenced
+
+Be concise. Only include items worth remembering. If nothing noteworthy, output "No new items."
+Output ONLY the bullet list, no explanation or headers.`;
 
       const response = await this.provider.chat({
-        messages: [{ role: "user", content: consolidationPrompt }],
+        messages: [{ role: "user", content: extractionPrompt }],
         model: resolveModel(this.config, "memory"),
-        maxTokens: 2000,
+        maxTokens: 1000,
+        temperature: 0.3,
+      });
+
+      if (response.content && response.finishReason !== "error") {
+        const content = response.content.trim();
+        if (content && !content.toLowerCase().includes("no new items")) {
+          await this.memory.appendDailyNote({
+            time: new Date().toISOString().split("T")[1].slice(0, 5),
+            source,
+            title: "Extracted from conversation",
+            bullets: content
+              .split("\n")
+              .map((l) => l.replace(/^[-*]\s*/, "").trim())
+              .filter((l) => l),
+          });
+        }
+      }
+
+      session.lastConsolidated = session.messages.length;
+      this.sessions.save(session);
+    } catch (err) {
+      console.error("Memory extraction error:", err);
+    }
+  }
+
+  /**
+   * Tier 2 consolidation: Weekly synthesis of daily notes into MEMORY.md.
+   * Called by heartbeat/cron, not on the hot path.
+   */
+  async synthesizeWeekly(): Promise<void> {
+    try {
+      const { existingMemory, weeklyNotes } =
+        await this.memory.getWeeklySynthesisInput();
+
+      if (!weeklyNotes.trim()) {
+        console.log("Weekly synthesis: no daily notes to synthesize.");
+        return;
+      }
+
+      const synthesisPrompt = `You are a memory synthesis assistant. Given the past week's daily notes and the current long-term memory, produce an updated MEMORY.md.
+
+## Current MEMORY.md
+${existingMemory || "(empty)"}
+
+## This Week's Daily Notes
+${weeklyNotes}
+
+## Instructions
+Write an updated MEMORY.md that:
+1. Preserves existing facts that are still relevant
+2. Adds new patterns, preferences, and key context from the week
+3. Removes outdated or contradicted information
+4. Groups information logically (user info, preferences, project context, important notes)
+5. Is concise — only include facts worth remembering long-term
+
+Output ONLY the memory content, no explanation.`;
+
+      const response = await this.provider.chat({
+        messages: [{ role: "user", content: synthesisPrompt }],
+        model: resolveModel(this.config, "memory"),
+        maxTokens: 3000,
         temperature: 0.3,
       });
 
       if (response.content && response.finishReason !== "error") {
         await this.memory.writeLongTerm(response.content);
-        session.lastConsolidated = session.messages.length;
-        // Re-save session with updated consolidation checkpoint
-        this.sessions.save(this.sessions.getOrCreate(sessionKey));
+        console.log("Weekly synthesis complete — MEMORY.md updated.");
+      }
+
+      // Archive old daily notes (older than 30 days)
+      const archived = await this.memory.archiveOldNotes(30);
+      if (archived > 0) {
+        console.log(`Archived ${archived} old daily notes.`);
       }
     } catch (err) {
-      console.error("Memory consolidation error:", err);
+      console.error("Weekly synthesis error:", err);
     }
   }
 

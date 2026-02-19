@@ -451,14 +451,16 @@ Deno.test("AgentLoop - memory consolidation triggers when message count exceeds 
     let consolidationCalled = false;
     const provider: LLMProvider = {
       async chat(params) {
-        // Detect consolidation call by checking for memory consolidation prompt
+        // Detect consolidation call by checking for memory extraction prompt
         const lastMsg = params.messages[params.messages.length - 1];
         if (
           typeof lastMsg?.content === "string" &&
-          lastMsg.content.includes("memory consolidation")
+          (lastMsg.content.includes("memory consolidation") ||
+           lastMsg.content.includes("memory extraction") ||
+           lastMsg.content.includes("Extract noteworthy"))
         ) {
           consolidationCalled = true;
-          return { content: "Updated memory", toolCalls: [], finishReason: "stop", usage: {} };
+          return { content: "- User prefers dark mode", toolCalls: [], finishReason: "stop", usage: {} };
         }
         return { content: "Response", toolCalls: [], finishReason: "stop", usage: {} };
       },

@@ -50,7 +50,7 @@ export class ContextBuilder {
     currentMessage: string,
     media: string[],
   ): Promise<ChatMessage[]> {
-    const systemPrompt = await this.buildSystemPrompt();
+    const systemPrompt = await this.buildSystemPrompt(currentMessage);
     this.messages = [];
 
     // System message
@@ -76,21 +76,31 @@ export class ContextBuilder {
     return this.messages;
   }
 
-  private async buildSystemPrompt(): Promise<string> {
+  private async buildSystemPrompt(currentMessage?: string): Promise<string> {
     const parts: string[] = [];
 
     parts.push("You are a helpful AI assistant running inside a containerized environment.");
-    parts.push("You have access to tools for file operations, shell commands, web search, and messaging.");
+    parts.push("You have access to tools for file operations, shell commands, web search, messaging, and a `learn` tool to save important knowledge to persistent memory.");
     parts.push("Always be concise and helpful. Use tools when needed to accomplish tasks.");
+    parts.push("Use the `learn` tool when: a user corrects you, you discover a non-obvious pattern, or a preference should be remembered forever.");
 
     const bootstrap = await this.loadBootstrapFiles();
     if (bootstrap) {
       parts.push(bootstrap);
     }
 
-    const memoryContext = await this.memory.getMemoryContext();
-    if (memoryContext) {
-      parts.push(memoryContext);
+    // Smart context loading: if we have a current message, load relevant context
+    // Otherwise fall back to loading all of MEMORY.md (legacy behavior)
+    if (currentMessage) {
+      const relevantContext = await this.memory.getRelevantContext(currentMessage);
+      if (relevantContext) {
+        parts.push(relevantContext);
+      }
+    } else {
+      const memoryContext = await this.memory.getMemoryContext();
+      if (memoryContext) {
+        parts.push(memoryContext);
+      }
     }
 
     if (this.skills) {

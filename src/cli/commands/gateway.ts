@@ -138,6 +138,27 @@ export async function runGateway(): Promise<void> {
   );
   heartbeat.setCallback(async (prompt) => {
     console.log("Heartbeat executing...");
+
+    // Weekly synthesis: run once per week (check every heartbeat)
+    try {
+      const lastSynthesisPath = `${config.data_dir}/.last-weekly-synthesis`;
+      let shouldSynthesize = false;
+      try {
+        const lastRun = await Deno.readTextFile(lastSynthesisPath);
+        const daysSince = (Date.now() - new Date(lastRun.trim()).getTime()) / (1000 * 60 * 60 * 24);
+        shouldSynthesize = daysSince >= 7;
+      } catch {
+        shouldSynthesize = true; // No record = never run
+      }
+      if (shouldSynthesize) {
+        console.log("Running weekly memory synthesis...");
+        await agent.synthesizeWeekly();
+        await Deno.writeTextFile(lastSynthesisPath, new Date().toISOString());
+      }
+    } catch (err) {
+      console.error("Weekly synthesis check error:", err);
+    }
+
     const response = await agent.processDirect("heartbeat", "system", prompt);
     return response;
   });

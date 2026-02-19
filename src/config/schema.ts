@@ -37,6 +37,7 @@ export const AgentsConfigSchema = z.object({
   temperature: z.number().min(0).max(2).default(0.7),
   max_tokens: z.number().int().positive().default(4096),
   memory_window: z.number().int().positive().default(50),
+  consolidation_threshold: z.number().int().positive().default(50),
   max_iterations: z.number().int().positive().default(20),
 });
 

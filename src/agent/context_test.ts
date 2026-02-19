@@ -8,6 +8,8 @@ function makeMemory(memoryContext = ""): MemoryStore {
     writeLongTerm: async (_content: string) => {},
     appendHistory: async (_entry: string) => {},
     getMemoryContext: async () => memoryContext,
+    getRelevantContext: async (_msg: string) => memoryContext,
+    getLearningsContext: async () => "",
   } as unknown as MemoryStore;
 }
 
