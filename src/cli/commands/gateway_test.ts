@@ -17,6 +17,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
       temperature: 0.7,
       max_tokens: 1000,
       memory_window: 10,
+      consolidation_threshold: 50,
       max_iterations: 5,
     },
     email: {

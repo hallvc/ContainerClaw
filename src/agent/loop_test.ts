@@ -23,6 +23,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
       temperature: 0.7,
       max_tokens: 1000,
       memory_window: 10,
+      consolidation_threshold: 50,
       max_iterations: 5,
     },
     email: {
@@ -162,6 +163,7 @@ Deno.test("AgentLoop - processDirect returns LLM response content", async () => 
 
     const result = await loop.processDirect("slack", "chat1", "Hello");
     assertEquals(result, "Direct response");
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -179,6 +181,7 @@ Deno.test("AgentLoop - processDirect returns error message when provider returns
 
     const result = await loop.processDirect("slack", "chat1", "Hello");
     assertEquals(result, "Something went wrong");
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -196,6 +199,7 @@ Deno.test("AgentLoop - processDirect returns fallback when provider returns erro
 
     const result = await loop.processDirect("slack", "chat1", "Hello");
     assertEquals(result, "Sorry, I encountered an error processing your request.");
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -220,6 +224,7 @@ Deno.test("AgentLoop - processDirect executes tool calls when provider returns t
 
     const result = await loop.processDirect("slack", "chat1", "List files");
     assertEquals(result, "Files listed!");
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -232,7 +237,7 @@ Deno.test("AgentLoop - processDirect stops at maxIterations with fallback messag
     const config = makeConfig({
       data_dir: tmpDir,
       workspace: tmpDir,
-      agents: { models: {}, temperature: 0.7, max_tokens: 1000, memory_window: 10, max_iterations: 2 },
+      agents: { models: {}, temperature: 0.7, max_tokens: 1000, memory_window: 10, consolidation_threshold: 50, max_iterations: 2 },
     });
     // Always returns tool calls so we never finish naturally
     const toolCallResponse: FakeResponse = {
@@ -247,6 +252,7 @@ Deno.test("AgentLoop - processDirect stops at maxIterations with fallback messag
 
     const result = await loop.processDirect("slack", "chat1", "Loop forever");
     assertStringIncludes(result, "thinking...");
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -269,6 +275,7 @@ Deno.test("AgentLoop - stop halts the run loop", async () => {
     busStop();
 
     await runPromise;
+    await loop.closeMcp();
     assertEquals(true, true);
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
@@ -301,6 +308,7 @@ Deno.test("AgentLoop - slash command /new clears session and publishes response"
 
     assertEquals(published.length, 1);
     assertEquals(published[0].content, "Session cleared. Starting fresh!");
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -332,6 +340,7 @@ Deno.test("AgentLoop - slash command /help publishes help text", async () => {
     assertStringIncludes(published[0].content, "Available commands");
     assertStringIncludes(published[0].content, "/new");
     assertStringIncludes(published[0].content, "/help");
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -361,6 +370,7 @@ Deno.test("AgentLoop - slash command case insensitive /NEW works", async () => {
 
     assertEquals(published.length, 1);
     assertEquals(published[0].content, "Session cleared. Starting fresh!");
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -399,6 +409,7 @@ Deno.test("AgentLoop - reasoning_content is passed through to provider on next i
     // Find the assistant message in the second call's messages
     const assistantMsg = secondCallMessages.find((m) => m.role === "assistant");
     assertEquals(assistantMsg?.reasoning_content, "I should list the directory first");
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -433,6 +444,7 @@ Deno.test("AgentLoop - reasoning_content omitted from message when not present",
 
     const assistantMsg = secondCallMessages.find((m) => m.role === "assistant");
     assertEquals("reasoning_content" in (assistantMsg ?? {}), false);
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -445,7 +457,7 @@ Deno.test("AgentLoop - memory consolidation triggers when message count exceeds 
     const config = makeConfig({
       data_dir: tmpDir,
       workspace: tmpDir,
-      agents: { models: {}, temperature: 0.7, max_tokens: 1000, memory_window: 2, max_iterations: 5 },
+      agents: { models: {}, temperature: 0.7, max_tokens: 1000, memory_window: 2, consolidation_threshold: 2, max_iterations: 5 },
     });
 
     let consolidationCalled = false;
@@ -486,6 +498,7 @@ Deno.test("AgentLoop - memory consolidation triggers when message count exceeds 
     await runPromise;
 
     assertEquals(consolidationCalled, true);
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -510,6 +523,7 @@ Deno.test("AgentLoop - spawn tool is registered", async () => {
 
     await loop.processDirect("slack", "chat1", "Hello");
     assertEquals(toolNames.includes("spawn"), true);
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -552,6 +566,7 @@ Deno.test("AgentLoop - system message routes response to original channel", asyn
     assertEquals(published[0].channel, "slack");
     assertEquals(published[0].chatId, "chat42");
     assertStringIncludes(published[0].content, "Background task result summary");
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -593,6 +608,7 @@ Deno.test("AgentLoop - system message with no colon in chatId falls back", async
     // Falls back to cli channel
     assertEquals(published[0].channel, "cli");
     assertEquals(published[0].chatId, "nochannel");
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
@@ -604,7 +620,7 @@ Deno.test("AgentLoop - memory consolidation handles provider errors gracefully",
     const config = makeConfig({
       data_dir: tmpDir,
       workspace: tmpDir,
-      agents: { models: {}, temperature: 0.7, max_tokens: 1000, memory_window: 2, max_iterations: 5 },
+      agents: { models: {}, temperature: 0.7, max_tokens: 1000, memory_window: 2, consolidation_threshold: 2, max_iterations: 5 },
     });
 
     let callCount = 0;
@@ -644,6 +660,7 @@ Deno.test("AgentLoop - memory consolidation handles provider errors gracefully",
     // Despite the consolidation error, the main response was still published
     assertEquals(published.length, 1);
     assertEquals(published[0].content, "Response");
+    await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
