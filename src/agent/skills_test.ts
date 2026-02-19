@@ -52,7 +52,7 @@ Deno.test("SkillsLoader - listSkills filters unavailable skills by default", asy
     await createSkill(
       dir,
       "needs-bin",
-      'name: needs-bin\ndescription: "Needs a binary"\nmetadata: {"nanobot":{"requires":{"bins":["nonexistent_binary_xyz_12345"]}}}',
+      'name: needs-bin\ndescription: "Needs a binary"\nmetadata: {"containerclaw":{"requires":{"bins":["nonexistent_binary_xyz_12345"]}}}',
       "# Needs bin",
     );
     await createSkill(dir, "no-reqs", 'name: no-reqs\ndescription: "No requirements"', "# OK");
@@ -178,13 +178,13 @@ Deno.test("SkillsLoader - getAlwaysSkills returns skills with always: true", asy
   }
 });
 
-Deno.test("SkillsLoader - getAlwaysSkills checks always in nanobot metadata too", async () => {
+Deno.test("SkillsLoader - getAlwaysSkills checks always in containerclaw metadata too", async () => {
   const dir = await Deno.makeTempDir();
   try {
     await createSkill(
       dir,
       "meta-always",
-      'name: meta-always\ndescription: "Always via metadata"\nmetadata: {"nanobot":{"always":true}}',
+      'name: meta-always\ndescription: "Always via metadata"\nmetadata: {"containerclaw":{"always":true}}',
       "# Meta Always",
     );
     const loader = new SkillsLoader(dir, dir);
@@ -201,7 +201,7 @@ Deno.test("SkillsLoader - getAlwaysSkills excludes skills with unmet requirement
     await createSkill(
       dir,
       "always-but-missing",
-      'name: always-but-missing\ndescription: "Always but missing"\nalways: true\nmetadata: {"nanobot":{"requires":{"bins":["nonexistent_binary_xyz_12345"]}}}',
+      'name: always-but-missing\ndescription: "Always but missing"\nalways: true\nmetadata: {"containerclaw":{"requires":{"bins":["nonexistent_binary_xyz_12345"]}}}',
       "# Missing",
     );
     const loader = new SkillsLoader(dir, dir);
@@ -290,7 +290,7 @@ Deno.test("SkillsLoader - buildSkillsSummary marks unavailable skills with requi
     await createSkill(
       dir,
       "unavail",
-      'name: unavail\ndescription: "Needs stuff"\nmetadata: {"nanobot":{"requires":{"bins":["nonexistent_binary_xyz_12345"]}}}',
+      'name: unavail\ndescription: "Needs stuff"\nmetadata: {"containerclaw":{"requires":{"bins":["nonexistent_binary_xyz_12345"]}}}',
       "# Unavail",
     );
     const loader = new SkillsLoader(dir, dir);
@@ -423,7 +423,7 @@ Deno.test("SkillsLoader - filters skills with missing env vars", async () => {
     await createSkill(
       dir,
       "needs-env",
-      'name: needs-env\ndescription: "Needs env"\nmetadata: {"nanobot":{"requires":{"env":["NONEXISTENT_ENV_VAR_XYZ_12345"]}}}',
+      'name: needs-env\ndescription: "Needs env"\nmetadata: {"containerclaw":{"requires":{"env":["NONEXISTENT_ENV_VAR_XYZ_12345"]}}}',
       "# Needs env",
     );
     const loader = new SkillsLoader(dir, dir);

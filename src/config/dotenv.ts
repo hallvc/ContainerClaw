@@ -13,7 +13,7 @@ async function fileExists(path: string): Promise<boolean> {
 export async function resolveDotenvPath(
   configDir: string,
 ): Promise<string | undefined> {
-  const explicit = Deno.env.get("NANOBOT_DOTENV_PATH");
+  const explicit = Deno.env.get("CONTAINERCLAW_DOTENV_PATH");
   if (explicit) return explicit;
 
   const sibling = join(configDir, ".env");

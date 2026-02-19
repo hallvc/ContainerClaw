@@ -42,11 +42,11 @@ export function buildRawConfig(
   env: Record<string, string | undefined>,
   fileConfig: Record<string, unknown>,
 ): Record<string, unknown> {
-  const model = env.NANOBOT_MODEL;
+  const model = env.CONTAINERCLAW_MODEL;
   return {
-    workspace: env.NANOBOT_WORKSPACE ??
+    workspace: env.CONTAINERCLAW_WORKSPACE ??
       (fileConfig.workspace as string | undefined),
-    data_dir: env.NANOBOT_DATA_DIR ??
+    data_dir: env.CONTAINERCLAW_DATA_DIR ??
       (fileConfig.data_dir as string | undefined),
     slack: {
       ...((fileConfig.slack as Record<string, unknown>) ?? {}),
@@ -69,15 +69,15 @@ export function buildRawConfig(
         ...(((fileConfig.agents as Record<string, unknown>)?.models as Record<string, unknown>) ?? {}),
         ...defined({
           default: model,
-          chat: env.NANOBOT_MODEL_CHAT,
-          memory: env.NANOBOT_MODEL_MEMORY,
+          chat: env.CONTAINERCLAW_MODEL_CHAT,
+          memory: env.CONTAINERCLAW_MODEL_MEMORY,
         }),
       },
       ...defined({
-        temperature: parseOptionalFloat(env.NANOBOT_TEMPERATURE),
-        max_tokens: parseOptionalInt(env.NANOBOT_MAX_TOKENS),
-        memory_window: parseOptionalInt(env.NANOBOT_MEMORY_WINDOW),
-        max_iterations: parseOptionalInt(env.NANOBOT_MAX_ITERATIONS),
+        temperature: parseOptionalFloat(env.CONTAINERCLAW_TEMPERATURE),
+        max_tokens: parseOptionalInt(env.CONTAINERCLAW_MAX_TOKENS),
+        memory_window: parseOptionalInt(env.CONTAINERCLAW_MEMORY_WINDOW),
+        max_iterations: parseOptionalInt(env.CONTAINERCLAW_MAX_ITERATIONS),
       }),
     },
     email: {
@@ -103,8 +103,8 @@ export function buildRawConfig(
     heartbeat: {
       ...((fileConfig.heartbeat as Record<string, unknown>) ?? {}),
       ...defined({
-        enabled: parseOptionalBool(env.NANOBOT_HEARTBEAT_ENABLED),
-        interval_seconds: parseOptionalInt(env.NANOBOT_HEARTBEAT_INTERVAL),
+        enabled: parseOptionalBool(env.CONTAINERCLAW_HEARTBEAT_ENABLED),
+        interval_seconds: parseOptionalInt(env.CONTAINERCLAW_HEARTBEAT_INTERVAL),
       }),
     },
   };
@@ -124,12 +124,12 @@ export async function resolveConfigPath(
 ): Promise<string> {
   if (explicitPath) return explicitPath;
 
-  const envPath = Deno.env.get("NANOBOT_CONFIG_PATH");
+  const envPath = Deno.env.get("CONTAINERCLAW_CONFIG_PATH");
   if (envPath) return envPath;
 
   const candidates = [
     "/data/config.json",
-    join(Deno.env.get("HOME") ?? "", ".nanobot", "config.json"),
+    join(Deno.env.get("HOME") ?? "", ".containerclaw", "config.json"),
   ];
 
   for (const candidate of candidates) {
@@ -145,15 +145,15 @@ export async function loadConfig(configPath?: string): Promise<Config> {
   await loadDotenv(dirname(resolvedPath));
   const fileConfig = await readFileConfig(resolvedPath);
   const env: Record<string, string | undefined> = {
-    NANOBOT_MODEL: Deno.env.get("NANOBOT_MODEL"),
-    NANOBOT_MODEL_CHAT: Deno.env.get("NANOBOT_MODEL_CHAT"),
-    NANOBOT_MODEL_MEMORY: Deno.env.get("NANOBOT_MODEL_MEMORY"),
-    NANOBOT_WORKSPACE: Deno.env.get("NANOBOT_WORKSPACE"),
-    NANOBOT_DATA_DIR: Deno.env.get("NANOBOT_DATA_DIR"),
-    NANOBOT_TEMPERATURE: Deno.env.get("NANOBOT_TEMPERATURE"),
-    NANOBOT_MAX_TOKENS: Deno.env.get("NANOBOT_MAX_TOKENS"),
-    NANOBOT_MEMORY_WINDOW: Deno.env.get("NANOBOT_MEMORY_WINDOW"),
-    NANOBOT_MAX_ITERATIONS: Deno.env.get("NANOBOT_MAX_ITERATIONS"),
+    CONTAINERCLAW_MODEL: Deno.env.get("CONTAINERCLAW_MODEL"),
+    CONTAINERCLAW_MODEL_CHAT: Deno.env.get("CONTAINERCLAW_MODEL_CHAT"),
+    CONTAINERCLAW_MODEL_MEMORY: Deno.env.get("CONTAINERCLAW_MODEL_MEMORY"),
+    CONTAINERCLAW_WORKSPACE: Deno.env.get("CONTAINERCLAW_WORKSPACE"),
+    CONTAINERCLAW_DATA_DIR: Deno.env.get("CONTAINERCLAW_DATA_DIR"),
+    CONTAINERCLAW_TEMPERATURE: Deno.env.get("CONTAINERCLAW_TEMPERATURE"),
+    CONTAINERCLAW_MAX_TOKENS: Deno.env.get("CONTAINERCLAW_MAX_TOKENS"),
+    CONTAINERCLAW_MEMORY_WINDOW: Deno.env.get("CONTAINERCLAW_MEMORY_WINDOW"),
+    CONTAINERCLAW_MAX_ITERATIONS: Deno.env.get("CONTAINERCLAW_MAX_ITERATIONS"),
     SLACK_BOT_TOKEN: Deno.env.get("SLACK_BOT_TOKEN"),
     SLACK_APP_TOKEN: Deno.env.get("SLACK_APP_TOKEN"),
     SLACK_GROUP_POLICY: Deno.env.get("SLACK_GROUP_POLICY"),
@@ -166,8 +166,8 @@ export async function loadConfig(configPath?: string): Promise<Config> {
     AGENTMAIL_DOMAIN: Deno.env.get("AGENTMAIL_DOMAIN"),
     AGENTMAIL_POLL_INTERVAL: Deno.env.get("AGENTMAIL_POLL_INTERVAL"),
     AGENTMAIL_POLICY: Deno.env.get("AGENTMAIL_POLICY"),
-    NANOBOT_HEARTBEAT_ENABLED: Deno.env.get("NANOBOT_HEARTBEAT_ENABLED"),
-    NANOBOT_HEARTBEAT_INTERVAL: Deno.env.get("NANOBOT_HEARTBEAT_INTERVAL"),
+    CONTAINERCLAW_HEARTBEAT_ENABLED: Deno.env.get("CONTAINERCLAW_HEARTBEAT_ENABLED"),
+    CONTAINERCLAW_HEARTBEAT_INTERVAL: Deno.env.get("CONTAINERCLAW_HEARTBEAT_INTERVAL"),
   };
   const raw = buildRawConfig(env, fileConfig);
   const clean = JSON.parse(JSON.stringify(raw));

@@ -9,9 +9,9 @@ export type ParsedCommand =
 const VALID_COMMANDS = ["gateway", "agent", "status", "onboard"] as const;
 type CommandName = typeof VALID_COMMANDS[number];
 
-const HELP_TEXT = `nanobot - AI agent framework
+const HELP_TEXT = `containerclaw - AI agent framework
 
-Usage: nanobot [command] [options]
+Usage: containerclaw [command] [options]
 
 Commands:
   gateway     Start gateway for channels (default)

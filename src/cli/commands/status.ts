@@ -40,8 +40,8 @@ function check(ok: boolean): string {
 
 export function renderStatus(info: StatusInfo): string {
   const lines: string[] = [
-    "nanobot status",
-    "==============",
+    "containerclaw status",
+    "====================",
     "",
     `Workspace:    ${info.workspace}`,
     `Data dir:     ${info.dataDir}`,

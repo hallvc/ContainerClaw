@@ -84,8 +84,8 @@ export class OpenRouterProvider implements LLMProvider {
         headers: {
           "Authorization": `Bearer ${this.apiKey}`,
           "Content-Type": "application/json",
-          "HTTP-Referer": "https://github.com/containerclaw/nanobot",
-          "X-Title": "nanobot",
+          "HTTP-Referer": "https://github.com/containerclaw/containerclaw",
+          "X-Title": "containerclaw",
         },
         body: JSON.stringify(body),
       });

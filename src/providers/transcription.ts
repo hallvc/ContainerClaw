@@ -60,8 +60,8 @@ export async function transcribe(
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/containerclaw/nanobot",
-        "X-Title": "nanobot",
+        "HTTP-Referer": "https://github.com/containerclaw/containerclaw",
+        "X-Title": "containerclaw",
       },
       body: JSON.stringify({
         model: TRANSCRIPTION_MODEL,

@@ -1,5 +1,5 @@
 services:
-  nanobot:
+  containerclaw:
     build: .
     restart: unless-stopped
     environment:
@@ -17,20 +17,20 @@ services:
       - AGENTMAIL_POLL_INTERVAL=${AGENTMAIL_POLL_INTERVAL:-15}
       - AGENTMAIL_POLICY=${AGENTMAIL_POLICY:-open}
       # Optional: Default model for all roles (defaults to minimax/minimax-m2.5)
-      - NANOBOT_MODEL=${NANOBOT_MODEL:-minimax/minimax-m2.5}
+      - CONTAINERCLAW_MODEL=${CONTAINERCLAW_MODEL:-minimax/minimax-m2.5}
       # Optional: Override model for chat (agent loop) only
-      - NANOBOT_MODEL_CHAT=${NANOBOT_MODEL_CHAT:-}
+      - CONTAINERCLAW_MODEL_CHAT=${CONTAINERCLAW_MODEL_CHAT:-}
       # Optional: Override model for memory consolidation only
-      - NANOBOT_MODEL_MEMORY=${NANOBOT_MODEL_MEMORY:-}
+      - CONTAINERCLAW_MODEL_MEMORY=${CONTAINERCLAW_MODEL_MEMORY:-}
       # Telegram channel (optional, at least one channel required)
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_ALLOW_FROM=${TELEGRAM_ALLOW_FROM:-}
     volumes:
       # Persistent data: sessions, memory, cron jobs
-      - nanobot-data:/data
+      - containerclaw-data:/data
       # Workspace for the agent to operate in
-      - nanobot-workspace:/workspace
+      - containerclaw-workspace:/workspace
 
 volumes:
-  nanobot-data:
-  nanobot-workspace:
+  containerclaw-data:
+  containerclaw-workspace:

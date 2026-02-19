@@ -19,9 +19,9 @@ Deno.test("loadConfig - defaults apply when no env vars or file config", () => {
 Deno.test("loadConfig - env vars override file config", () => {
   const env: Record<string, string | undefined> = {
     SLACK_BOT_TOKEN: "env-bot-token",
-    NANOBOT_TEMPERATURE: "0.3",
-    NANOBOT_MAX_TOKENS: "2048",
-    NANOBOT_MODEL: "env-model",
+    CONTAINERCLAW_TEMPERATURE: "0.3",
+    CONTAINERCLAW_MAX_TOKENS: "2048",
+    CONTAINERCLAW_MODEL: "env-model",
   };
   const fileConfig: Record<string, unknown> = {
     slack: { bot_token: "file-bot-token" },
@@ -38,9 +38,9 @@ Deno.test("loadConfig - env vars override file config", () => {
   assertEquals(config.openrouter.default_model, "env-model");
 });
 
-Deno.test("loadConfig - NANOBOT_MODEL_CHAT maps to agents.models.chat", () => {
+Deno.test("loadConfig - CONTAINERCLAW_MODEL_CHAT maps to agents.models.chat", () => {
   const env: Record<string, string | undefined> = {
-    NANOBOT_MODEL_CHAT: "chat-model",
+    CONTAINERCLAW_MODEL_CHAT: "chat-model",
   };
   const raw = buildRawConfig(env, emptyFile);
   const config = ConfigSchema.parse(JSON.parse(JSON.stringify(raw)));
@@ -49,9 +49,9 @@ Deno.test("loadConfig - NANOBOT_MODEL_CHAT maps to agents.models.chat", () => {
   assertEquals(config.agents.models.memory, undefined);
 });
 
-Deno.test("loadConfig - NANOBOT_MODEL_MEMORY maps to agents.models.memory", () => {
+Deno.test("loadConfig - CONTAINERCLAW_MODEL_MEMORY maps to agents.models.memory", () => {
   const env: Record<string, string | undefined> = {
-    NANOBOT_MODEL_MEMORY: "memory-model",
+    CONTAINERCLAW_MODEL_MEMORY: "memory-model",
   };
   const raw = buildRawConfig(env, emptyFile);
   const config = ConfigSchema.parse(JSON.parse(JSON.stringify(raw)));
@@ -62,7 +62,7 @@ Deno.test("loadConfig - NANOBOT_MODEL_MEMORY maps to agents.models.memory", () =
 
 Deno.test("loadConfig - per-role env vars override file config models", () => {
   const env: Record<string, string | undefined> = {
-    NANOBOT_MODEL_MEMORY: "env-memory",
+    CONTAINERCLAW_MODEL_MEMORY: "env-memory",
   };
   const fileConfig: Record<string, unknown> = {
     agents: { models: { memory: "file-memory", chat: "file-chat" } },
@@ -91,9 +91,9 @@ Deno.test("loadConfig - file config used as fallback", () => {
   assertEquals(config.workspace, "/custom/workspace");
 });
 
-Deno.test("loadConfig - NANOBOT_MAX_ITERATIONS maps to agents.max_iterations", () => {
+Deno.test("loadConfig - CONTAINERCLAW_MAX_ITERATIONS maps to agents.max_iterations", () => {
   const env: Record<string, string | undefined> = {
-    NANOBOT_MAX_ITERATIONS: "10",
+    CONTAINERCLAW_MAX_ITERATIONS: "10",
   };
   const raw = buildRawConfig(env, emptyFile);
   const config = ConfigSchema.parse(JSON.parse(JSON.stringify(raw)));
@@ -103,10 +103,10 @@ Deno.test("loadConfig - NANOBOT_MAX_ITERATIONS maps to agents.max_iterations", (
 
 Deno.test("loadConfig - invalid numeric env vars fall back to defaults", () => {
   const env: Record<string, string | undefined> = {
-    NANOBOT_TEMPERATURE: "abc",
-    NANOBOT_MAX_TOKENS: "xyz",
-    NANOBOT_MEMORY_WINDOW: "not-a-number",
-    NANOBOT_MAX_ITERATIONS: "",
+    CONTAINERCLAW_TEMPERATURE: "abc",
+    CONTAINERCLAW_MAX_TOKENS: "xyz",
+    CONTAINERCLAW_MEMORY_WINDOW: "not-a-number",
+    CONTAINERCLAW_MAX_ITERATIONS: "",
   };
   const raw = buildRawConfig(env, emptyFile);
   const config = ConfigSchema.parse(JSON.parse(JSON.stringify(raw)));
@@ -133,19 +133,19 @@ Deno.test("resolveConfigPath - explicit path takes priority", async () => {
   }
 });
 
-Deno.test("resolveConfigPath - NANOBOT_CONFIG_PATH env var used when set", async () => {
+Deno.test("resolveConfigPath - CONTAINERCLAW_CONFIG_PATH env var used when set", async () => {
   const tmpDir = await Deno.makeTempDir();
   try {
     const configPath = `${tmpDir}/custom-config.json`;
     await Deno.writeTextFile(configPath, "{}");
-    const original = Deno.env.get("NANOBOT_CONFIG_PATH");
-    Deno.env.set("NANOBOT_CONFIG_PATH", configPath);
+    const original = Deno.env.get("CONTAINERCLAW_CONFIG_PATH");
+    Deno.env.set("CONTAINERCLAW_CONFIG_PATH", configPath);
     try {
       const result = await resolveConfigPath();
       assertEquals(result, configPath);
     } finally {
-      if (original) Deno.env.set("NANOBOT_CONFIG_PATH", original);
-      else Deno.env.delete("NANOBOT_CONFIG_PATH");
+      if (original) Deno.env.set("CONTAINERCLAW_CONFIG_PATH", original);
+      else Deno.env.delete("CONTAINERCLAW_CONFIG_PATH");
     }
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
@@ -168,15 +168,15 @@ Deno.test("resolveConfigPath - falls back to /data/config.json path when it exis
 });
 
 Deno.test("resolveConfigPath - returns /data/config.json as default when no env set", async () => {
-  const original = Deno.env.get("NANOBOT_CONFIG_PATH");
-  Deno.env.delete("NANOBOT_CONFIG_PATH");
+  const original = Deno.env.get("CONTAINERCLAW_CONFIG_PATH");
+  Deno.env.delete("CONTAINERCLAW_CONFIG_PATH");
   try {
-    // With no explicit path and no env var, should return /data/config.json or ~/.nanobot/config.json
+    // With no explicit path and no env var, should return /data/config.json or ~/.containerclaw/config.json
     const result = await resolveConfigPath();
     // It should be a string path (either /data/config.json or home-based)
     assertEquals(typeof result, "string");
   } finally {
-    if (original) Deno.env.set("NANOBOT_CONFIG_PATH", original);
+    if (original) Deno.env.set("CONTAINERCLAW_CONFIG_PATH", original);
   }
 });
 
@@ -188,7 +188,7 @@ Deno.test("loadConfig - .env file values flow through to final Config", async ()
   const tmpDir = await Deno.makeTempDir();
   const key = "OPENROUTER_API_KEY";
   const originalKey = Deno.env.get(key);
-  const originalDotenvPath = Deno.env.get("NANOBOT_DOTENV_PATH");
+  const originalDotenvPath = Deno.env.get("CONTAINERCLAW_DOTENV_PATH");
   try {
     // Write a minimal config.json
     const configPath = join(tmpDir, "config.json");
@@ -202,15 +202,15 @@ Deno.test("loadConfig - .env file values flow through to final Config", async ()
 
     // Clear any existing env value so .env can set it
     Deno.env.delete(key);
-    Deno.env.delete("NANOBOT_DOTENV_PATH");
+    Deno.env.delete("CONTAINERCLAW_DOTENV_PATH");
 
     const config = await loadConfig(configPath);
     assertEquals(config.openrouter.api_key, "sk-from-dotenv");
   } finally {
     if (originalKey) Deno.env.set(key, originalKey);
     else Deno.env.delete(key);
-    if (originalDotenvPath) Deno.env.set("NANOBOT_DOTENV_PATH", originalDotenvPath);
-    else Deno.env.delete("NANOBOT_DOTENV_PATH");
+    if (originalDotenvPath) Deno.env.set("CONTAINERCLAW_DOTENV_PATH", originalDotenvPath);
+    else Deno.env.delete("CONTAINERCLAW_DOTENV_PATH");
     await Deno.remove(tmpDir, { recursive: true });
   }
 });

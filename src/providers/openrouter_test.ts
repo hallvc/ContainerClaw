@@ -117,8 +117,8 @@ Deno.test("OpenRouterProvider - chat sends correct URL and headers", async () =>
     const headers = stub.calls[0].init.headers as Record<string, string>;
     assertEquals(headers["Authorization"], "Bearer sk-my-key");
     assertEquals(headers["Content-Type"], "application/json");
-    assertEquals(headers["HTTP-Referer"], "https://github.com/containerclaw/nanobot");
-    assertEquals(headers["X-Title"], "nanobot");
+    assertEquals(headers["HTTP-Referer"], "https://github.com/containerclaw/containerclaw");
+    assertEquals(headers["X-Title"], "containerclaw");
   } finally {
     stub.restore();
   }

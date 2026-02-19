@@ -1,5 +1,5 @@
 /**
- * MCP client: connects to MCP servers and wraps their tools as native nanobot tools.
+ * MCP client: connects to MCP servers and wraps their tools as native containerclaw tools.
  */
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -37,7 +37,7 @@ export async function loadMcpConfig(
 // deno-lint-ignore no-explicit-any
 type MCPClient = any;
 
-/** Wraps a single MCP server tool as a nanobot Tool. */
+/** Wraps a single MCP server tool as a containerclaw Tool. */
 export class MCPToolWrapper implements Tool {
   name: string;
   description: string;
@@ -104,7 +104,7 @@ export async function connectMcpServers(
         continue;
       }
 
-      const client = new Client({ name: "nanobot", version: "1.0.0" });
+      const client = new Client({ name: "containerclaw", version: "1.0.0" });
       await client.connect(transport);
 
       const { tools } = await client.listTools();

@@ -17,7 +17,7 @@ export interface SkillMetadata {
   [key: string]: string;
 }
 
-interface NanobotMetadata {
+interface ContainerClawMetadata {
   requires?: { bins?: string[]; env?: string[] };
   always?: boolean;
   emoji?: string;
@@ -165,10 +165,10 @@ export class SkillsLoader {
     for (const s of skills) {
       const frontmatter = await this.getSkillMetadata(s.name);
       if (!frontmatter) continue;
-      const nanobotMeta = this.parseNanobotMetadata(
+      const containerClawMeta = this.parseContainerClawMetadata(
         frontmatter["metadata"] ?? "",
       );
-      if (nanobotMeta.always || frontmatter["always"] === "true") {
+      if (containerClawMeta.always || frontmatter["always"] === "true") {
         result.push(s.name);
       }
     }
@@ -209,11 +209,11 @@ export class SkillsLoader {
     return content;
   }
 
-  private parseNanobotMetadata(raw: string): NanobotMetadata {
+  private parseContainerClawMetadata(raw: string): ContainerClawMetadata {
     try {
       const data = JSON.parse(raw);
       if (typeof data === "object" && data !== null) {
-        return data.nanobot ?? data.openclaw ?? {};
+        return data.containerclaw ?? data.nanobot ?? data.openclaw ?? {};
       }
       return {};
     } catch {
@@ -221,7 +221,7 @@ export class SkillsLoader {
     }
   }
 
-  private async checkRequirements(meta: NanobotMetadata): Promise<boolean> {
+  private async checkRequirements(meta: ContainerClawMetadata): Promise<boolean> {
     const requires = meta.requires;
     if (!requires) return true;
 
@@ -234,7 +234,7 @@ export class SkillsLoader {
     return true;
   }
 
-  private async getMissingRequirements(meta: NanobotMetadata): Promise<string> {
+  private async getMissingRequirements(meta: ContainerClawMetadata): Promise<string> {
     const missing: string[] = [];
     const requires = meta.requires;
     if (!requires) return "";
@@ -254,10 +254,10 @@ export class SkillsLoader {
     return name;
   }
 
-  private async getSkillMeta(name: string): Promise<NanobotMetadata> {
+  private async getSkillMeta(name: string): Promise<ContainerClawMetadata> {
     const meta = await this.getSkillMetadata(name);
     if (!meta) return {};
-    return this.parseNanobotMetadata(meta["metadata"] ?? "");
+    return this.parseContainerClawMetadata(meta["metadata"] ?? "");
   }
 
   private async whichExists(bin: string): Promise<boolean> {

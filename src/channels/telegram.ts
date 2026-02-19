@@ -209,7 +209,7 @@ export class TelegramChannel extends BaseChannel {
     const user = ctx.from;
     if (!user) return;
     await ctx.reply(
-      `Hi ${user.first_name}! I'm nanobot.\n\n` +
+      `Hi ${user.first_name}! I'm ContainerClaw.\n\n` +
         "Send me a message and I'll respond!\n" +
         "Type /help to see available commands.",
     );

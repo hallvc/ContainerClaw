@@ -47,7 +47,7 @@ export async function runAgent(options: AgentOptions = {}): Promise<void> {
 
   if (!config.openrouter.api_key) {
     console.error(
-      "OPENROUTER_API_KEY is required. Run 'nanobot onboard' to configure.",
+      "OPENROUTER_API_KEY is required. Run 'containerclaw onboard' to configure.",
     );
     Deno.exit(1);
   }
@@ -75,7 +75,7 @@ export async function runAgent(options: AgentOptions = {}): Promise<void> {
   }
 
   // Interactive REPL mode
-  console.log(`nanobot agent (model: ${resolveModel(config, "chat")})`);
+  console.log(`containerclaw agent (model: ${resolveModel(config, "chat")})`);
   console.log(`Session: ${sessionKey}`);
   console.log("Type /help for commands, /quit to exit\n");
 

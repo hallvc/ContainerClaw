@@ -1,6 +1,6 @@
-# nanobot (Deno)
+# ContainerClaw
 
-An ultra-lightweight personal AI agent framework — a **Deno/TypeScript rewrite** of [nanobot](https://github.com/HKUDS/nanobot).
+An ultra-lightweight personal AI agent framework — built upon [nanobot](https://github.com/HKUDS/nanobot).
 
 Delivers core agent functionality with tool execution, multi-channel chat, MCP support, persistent memory, and background subagents.
 
@@ -12,11 +12,11 @@ Delivers core agent functionality with tool execution, multi-channel chat, MCP s
 
 ```bash
 git clone <repo-url>
-cd nanobot
+cd containerclaw
 deno task onboard
 ```
 
-**2. Configure** (`~/.nanobot/data/.env`)
+**2. Configure** (`~/.containerclaw/data/.env`)
 
 ```bash
 OPENROUTER_API_KEY=sk-or-v1-xxx
@@ -25,7 +25,7 @@ OPENROUTER_API_KEY=sk-or-v1-xxx
 Or copy the example and fill in your values:
 
 ```bash
-cp .env.example ~/.nanobot/data/.env
+cp .env.example ~/.containerclaw/data/.env
 ```
 
 **3. Chat**
@@ -78,7 +78,7 @@ Configuration is loaded from three sources, with later sources overriding earlie
 2. **`.env` file** — Secrets and overrides (API keys, tokens)
 3. **Shell environment variables** — Always win over both files
 
-The `.env` file is loaded from the same directory as `config.json`. By default, `deno task onboard` writes `config.json` to `~/.nanobot/data/` and secrets to `~/.nanobot/data/.env`.
+The `.env` file is loaded from the same directory as `config.json`. By default, `deno task onboard` writes `config.json` to `~/.containerclaw/data/` and secrets to `~/.containerclaw/data/.env`.
 
 ### Environment Variables
 
@@ -89,15 +89,15 @@ All settings can be configured via environment variables. A `.env.example` is in
 OPENROUTER_API_KEY=sk-or-v1-xxx
 
 # Model selection (optional)
-NANOBOT_MODEL=anthropic/claude-sonnet-4-20250514
-NANOBOT_MODEL_CHAT=deepseek/deepseek-r1
-NANOBOT_MODEL_MEMORY=anthropic/claude-haiku-4-5-20251001
+CONTAINERCLAW_MODEL=anthropic/claude-sonnet-4-20250514
+CONTAINERCLAW_MODEL_CHAT=deepseek/deepseek-r1
+CONTAINERCLAW_MODEL_MEMORY=anthropic/claude-haiku-4-5-20251001
 
 # Agent tuning (optional)
-NANOBOT_TEMPERATURE=0.7
-NANOBOT_MAX_TOKENS=4096
-NANOBOT_MEMORY_WINDOW=50
-NANOBOT_MAX_ITERATIONS=20
+CONTAINERCLAW_TEMPERATURE=0.7
+CONTAINERCLAW_MAX_TOKENS=4096
+CONTAINERCLAW_MEMORY_WINDOW=50
+CONTAINERCLAW_MAX_ITERATIONS=20
 
 # Channels (optional)
 SLACK_BOT_TOKEN=xoxb-...
@@ -164,16 +164,16 @@ To use your own Exa API key for higher rate limits, configure the Exa MCP server
 | Setting | Env Variable | Default | Description |
 |---------|-------------|---------|-------------|
 | `openrouter.api_key` | `OPENROUTER_API_KEY` | `""` | OpenRouter API key |
-| `openrouter.default_model` | `NANOBOT_MODEL` | `"minimax/minimax-m2.5"` | Default LLM model |
-| `agents.models.chat` | `NANOBOT_MODEL_CHAT` | — | Chat model override |
-| `agents.models.memory` | `NANOBOT_MODEL_MEMORY` | — | Memory consolidation model |
-| `agents.temperature` | `NANOBOT_TEMPERATURE` | `0.7` | Sampling temperature (0-2) |
-| `agents.max_tokens` | `NANOBOT_MAX_TOKENS` | `4096` | Max response tokens |
-| `agents.memory_window` | `NANOBOT_MEMORY_WINDOW` | `50` | Messages before memory consolidation |
-| `agents.max_iterations` | `NANOBOT_MAX_ITERATIONS` | `20` | Max tool-call iterations per turn |
+| `openrouter.default_model` | `CONTAINERCLAW_MODEL` | `"minimax/minimax-m2.5"` | Default LLM model |
+| `agents.models.chat` | `CONTAINERCLAW_MODEL_CHAT` | — | Chat model override |
+| `agents.models.memory` | `CONTAINERCLAW_MODEL_MEMORY` | — | Memory consolidation model |
+| `agents.temperature` | `CONTAINERCLAW_TEMPERATURE` | `0.7` | Sampling temperature (0-2) |
+| `agents.max_tokens` | `CONTAINERCLAW_MAX_TOKENS` | `4096` | Max response tokens |
+| `agents.memory_window` | `CONTAINERCLAW_MEMORY_WINDOW` | `50` | Messages before memory consolidation |
+| `agents.max_iterations` | `CONTAINERCLAW_MAX_ITERATIONS` | `20` | Max tool-call iterations per turn |
 | `tools.exec_timeout_ms` | — | `60000` | Shell command timeout (ms) |
-| `workspace` | `NANOBOT_WORKSPACE` | `"/workspace"` | Agent workspace directory |
-| `data_dir` | `NANOBOT_DATA_DIR` | `"/data"` | Data storage directory |
+| `workspace` | `CONTAINERCLAW_WORKSPACE` | `"/workspace"` | Agent workspace directory |
+| `data_dir` | `CONTAINERCLAW_DATA_DIR` | `"/data"` | Data storage directory |
 
 ## Chat Channels
 
@@ -223,7 +223,7 @@ Uses the [AgentMail](https://agentmail.to) service for email integration.
 ```bash
 AGENTMAIL_API_KEY=YOUR_AGENTMAIL_API_KEY
 AGENTMAIL_INBOX_ID=YOUR_INBOX_ID
-AGENTMAIL_USERNAME=nanobot
+AGENTMAIL_USERNAME=containerclaw
 AGENTMAIL_DOMAIN=agentmail.to
 AGENTMAIL_POLL_INTERVAL=15
 AGENTMAIL_POLICY=open
@@ -332,16 +332,16 @@ src/
 
 ```bash
 # Build
-docker build -t nanobot .
+docker build -t containerclaw .
 
 # Run with docker-compose (reads .env automatically)
 docker compose up
 
 # Or run directly with env vars
-docker run --env-file .env -v nanobot-data:/data -v nanobot-workspace:/workspace nanobot
+docker run --env-file .env -v containerclaw-data:/data -v containerclaw-workspace:/workspace containerclaw
 
 # Single message
-docker run --env-file .env --rm nanobot run --allow-all src/main.ts agent -m "Hello!"
+docker run --env-file .env --rm containerclaw run --allow-all src/main.ts agent -m "Hello!"
 ```
 
 The included `docker-compose.yml` passes all supported environment variables into the container. Place your `.env` file in the project root or export the variables in your shell.

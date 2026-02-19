@@ -32,7 +32,7 @@ export function detectChannels(config: Config): ChannelDetection {
 }
 
 export async function runGateway(): Promise<void> {
-  console.log("nanobot starting...");
+  console.log("containerclaw starting...");
 
   const config = await loadConfig();
 
