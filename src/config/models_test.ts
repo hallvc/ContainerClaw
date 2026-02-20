@@ -55,3 +55,20 @@ Deno.test("resolveModel - role-specific takes priority over models.default", () 
   assertEquals(resolveModel(config, "memory"), "specific-memory");
   assertEquals(resolveModel(config, "chat"), "fallback");
 });
+
+Deno.test("resolveModel - heartbeat returns schema default 'openrouter/free' with no config", () => {
+  const config = ConfigSchema.parse({});
+  assertEquals(resolveModel(config, "heartbeat"), "openrouter/free");
+});
+
+Deno.test("resolveModel - heartbeat returns explicit value when set", () => {
+  const config = ConfigSchema.parse({
+    agents: { models: { heartbeat: "custom/heartbeat-model" } },
+  });
+  assertEquals(resolveModel(config, "heartbeat"), "custom/heartbeat-model");
+});
+
+Deno.test("heartbeat interval_seconds defaults to 60", () => {
+  const config = ConfigSchema.parse({});
+  assertEquals(config.heartbeat.interval_seconds, 60);
+});

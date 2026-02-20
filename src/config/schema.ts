@@ -28,6 +28,7 @@ export const ModelRolesSchema = z.object({
   default: z.string().optional(),
   chat: z.string().optional(),
   memory: z.string().optional(),
+  heartbeat: z.string().default("openrouter/free"),
 });
 
 export type ModelRole = keyof z.infer<typeof ModelRolesSchema>;
@@ -57,7 +58,7 @@ export const ToolsConfigSchema = z.object({
 
 export const HeartbeatConfigSchema = z.object({
   enabled: z.boolean().default(true),
-  interval_seconds: z.number().int().positive().default(1800),
+  interval_seconds: z.number().int().positive().default(60),
 });
 
 export const ConfigSchema = z.object({

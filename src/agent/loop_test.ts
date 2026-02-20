@@ -19,7 +19,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     },
     openrouter: { api_key: "", default_model: "anthropic/claude-sonnet-4-5" },
     agents: {
-      models: {},
+      models: { heartbeat: "openrouter/free" },
       temperature: 0.7,
       max_tokens: 1000,
       memory_window: 10,
@@ -237,7 +237,7 @@ Deno.test("AgentLoop - processDirect stops at maxIterations with fallback messag
     const config = makeConfig({
       data_dir: tmpDir,
       workspace: tmpDir,
-      agents: { models: {}, temperature: 0.7, max_tokens: 1000, memory_window: 10, consolidation_threshold: 50, max_iterations: 2 },
+      agents: { models: { heartbeat: "openrouter/free" }, temperature: 0.7, max_tokens: 1000, memory_window: 10, consolidation_threshold: 50, max_iterations: 2 },
     });
     // Always returns tool calls so we never finish naturally
     const toolCallResponse: FakeResponse = {
@@ -457,7 +457,7 @@ Deno.test("AgentLoop - memory consolidation triggers when message count exceeds 
     const config = makeConfig({
       data_dir: tmpDir,
       workspace: tmpDir,
-      agents: { models: {}, temperature: 0.7, max_tokens: 1000, memory_window: 2, consolidation_threshold: 2, max_iterations: 5 },
+      agents: { models: { heartbeat: "openrouter/free" }, temperature: 0.7, max_tokens: 1000, memory_window: 2, consolidation_threshold: 2, max_iterations: 5 },
     });
 
     let consolidationCalled = false;
@@ -620,7 +620,7 @@ Deno.test("AgentLoop - memory consolidation handles provider errors gracefully",
     const config = makeConfig({
       data_dir: tmpDir,
       workspace: tmpDir,
-      agents: { models: {}, temperature: 0.7, max_tokens: 1000, memory_window: 2, consolidation_threshold: 2, max_iterations: 5 },
+      agents: { models: { heartbeat: "openrouter/free" }, temperature: 0.7, max_tokens: 1000, memory_window: 2, consolidation_threshold: 2, max_iterations: 5 },
     });
 
     let callCount = 0;

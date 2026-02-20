@@ -13,7 +13,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     },
     openrouter: { api_key: "sk-test", default_model: "test-model" },
     agents: {
-      models: {},
+      models: { heartbeat: "openrouter/free" },
       temperature: 0.7,
       max_tokens: 1000,
       memory_window: 10,
@@ -61,7 +61,7 @@ Deno.test("getStatus - shows per-role models when configured", () => {
   const config = makeConfig({
     openrouter: { api_key: "sk-test", default_model: "fallback-model" },
     agents: {
-      models: { chat: "chat-model", memory: "memory-model" },
+      models: { chat: "chat-model", memory: "memory-model", heartbeat: "openrouter/free" },
       temperature: 0.7,
       max_tokens: 1000,
       memory_window: 10,

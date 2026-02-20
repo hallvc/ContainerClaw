@@ -13,7 +13,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     },
     openrouter: { api_key: "", default_model: "test-model" },
     agents: {
-      models: {},
+      models: { heartbeat: "openrouter/free" },
       temperature: 0.7,
       max_tokens: 1000,
       memory_window: 10,
