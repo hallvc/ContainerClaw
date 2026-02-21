@@ -95,18 +95,115 @@ async function atomicWrite(path: string, content: string): Promise<void> {
 /** Extract simple keyword tags from text */
 function extractTags(text: string): string[] {
   const stopWords = new Set([
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "shall", "can", "need", "dare", "ought",
-    "used", "to", "of", "in", "for", "on", "with", "at", "by", "from",
-    "as", "into", "through", "during", "before", "after", "above", "below",
-    "between", "out", "off", "over", "under", "again", "further", "then",
-    "once", "that", "this", "these", "those", "and", "but", "or", "nor",
-    "not", "so", "very", "just", "about", "up", "it", "its", "he", "she",
-    "they", "them", "we", "you", "i", "me", "my", "your", "his", "her",
-    "our", "their", "what", "which", "who", "whom", "when", "where", "why",
-    "how", "all", "each", "every", "both", "few", "more", "most", "other",
-    "some", "such", "no", "only", "own", "same", "than", "too", "also",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "shall",
+    "can",
+    "need",
+    "dare",
+    "ought",
+    "used",
+    "to",
+    "of",
+    "in",
+    "for",
+    "on",
+    "with",
+    "at",
+    "by",
+    "from",
+    "as",
+    "into",
+    "through",
+    "during",
+    "before",
+    "after",
+    "above",
+    "below",
+    "between",
+    "out",
+    "off",
+    "over",
+    "under",
+    "again",
+    "further",
+    "then",
+    "once",
+    "that",
+    "this",
+    "these",
+    "those",
+    "and",
+    "but",
+    "or",
+    "nor",
+    "not",
+    "so",
+    "very",
+    "just",
+    "about",
+    "up",
+    "it",
+    "its",
+    "he",
+    "she",
+    "they",
+    "them",
+    "we",
+    "you",
+    "i",
+    "me",
+    "my",
+    "your",
+    "his",
+    "her",
+    "our",
+    "their",
+    "what",
+    "which",
+    "who",
+    "whom",
+    "when",
+    "where",
+    "why",
+    "how",
+    "all",
+    "each",
+    "every",
+    "both",
+    "few",
+    "more",
+    "most",
+    "other",
+    "some",
+    "such",
+    "no",
+    "only",
+    "own",
+    "same",
+    "than",
+    "too",
+    "also",
   ]);
 
   const words = text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
@@ -157,6 +254,8 @@ function recencyBoost(dateStr: string): number {
   return 1.0 - (daysDiff / 30) * 0.7;
 }
 
+const INDEX_VERSION = "1.1.0";
+
 // --- MemoryStore ---
 
 export class MemoryStore {
@@ -205,6 +304,10 @@ export class MemoryStore {
 
   private indexPath(): string {
     return join(this.dataDir, ".index.json");
+  }
+
+  private versionsDir(): string {
+    return join(this.dataDir, "versions");
   }
 
   // ──────────────────────────────────────────────
@@ -282,7 +385,11 @@ export class MemoryStore {
   }
 
   /** Append raw text entry to daily note (simpler interface for consolidation) */
-  async appendDailyRaw(text: string, source: string, date?: string): Promise<void> {
+  async appendDailyRaw(
+    text: string,
+    source: string,
+    date?: string,
+  ): Promise<void> {
     const d = date ?? todayStr();
     const entry: DailyEntry = {
       time: timeStr(),
@@ -327,7 +434,9 @@ export class MemoryStore {
   }
 
   /** Read daily notes from the past N days */
-  async readRecentDailyNotes(days: number): Promise<Array<{ date: string; content: string }>> {
+  async readRecentDailyNotes(
+    days: number,
+  ): Promise<Array<{ date: string; content: string }>> {
     const since = new Date();
     since.setDate(since.getDate() - days);
     const dates = await this.listDailyNotes(since);
@@ -365,7 +474,8 @@ export class MemoryStore {
 
     if (exists) {
       // Append update to existing learning (preserve history)
-      const update = `\n\n---\n\n**Updated**: ${learning.learned}\n**Source**: ${learning.source}\n\n${learning.content}\n`;
+      const update =
+        `\n\n---\n\n**Updated**: ${learning.learned}\n**Source**: ${learning.source}\n\n${learning.content}\n`;
       await using file = await Deno.open(path, { write: true, append: true });
       await file.write(new TextEncoder().encode(update));
     } else {
@@ -405,9 +515,13 @@ export class MemoryStore {
   }
 
   /** Parse a learning markdown file */
-  private parseLearningFile(content: string, filename: string): Learning | null {
+  private parseLearningFile(
+    content: string,
+    filename: string,
+  ): Learning | null {
     const lines = content.split("\n");
-    const topic = (lines[0] ?? "").replace(/^#\s*/, "").trim() || filename.replace(".md", "");
+    const topic = (lines[0] ?? "").replace(/^#\s*/, "").trim() ||
+      filename.replace(".md", "");
     let learned = "";
     let source = "";
     const bodyLines: string[] = [];
@@ -481,7 +595,11 @@ export class MemoryStore {
 
     // Atomic check-and-create
     try {
-      await Deno.writeTextFile(path, "# Entities\n\nPeople, projects, and tools mentioned in conversations.\n\n", { createNew: true });
+      await Deno.writeTextFile(
+        path,
+        "# Entities\n\nPeople, projects, and tools mentioned in conversations.\n\n",
+        { createNew: true },
+      );
     } catch (err) {
       if (!(err instanceof Deno.errors.AlreadyExists)) throw err;
     }
@@ -505,7 +623,12 @@ export class MemoryStore {
       const indexMtime = indexStat.mtime?.getTime() ?? 0;
 
       // Check if any markdown file is newer than the index
-      const dirs = [this.dailyDir(), this.learningsDir(), this.dataDir, join(this.dataDir, "entities")];
+      const dirs = [
+        this.dailyDir(),
+        this.learningsDir(),
+        this.dataDir,
+        join(this.dataDir, "entities"),
+      ];
       for (const dir of dirs) {
         try {
           for await (const entry of Deno.readDir(dir)) {
@@ -527,7 +650,7 @@ export class MemoryStore {
   /** Rebuild the search index from markdown files */
   async rebuildIndex(): Promise<MemoryIndex> {
     const index: MemoryIndex = {
-      version: "1.0.0",
+      version: INDEX_VERSION,
       lastRebuilt: new Date().toISOString(),
       facts: [],
       entities: [],
@@ -547,18 +670,48 @@ export class MemoryStore {
         const body = section.split("\n").slice(1).join("\n").trim();
         if (!body) continue;
 
-        const id = await contentHash(`${date}:${firstLine}:${body}`);
         const sourceMatch = firstLine.match(/\[([^\]]+)\]\s*\[([^\]]+)\]/);
         const source = sourceMatch?.[2] ?? "unknown";
+        const file = `daily/${date}.md`;
 
-        index.facts.push({
-          id,
-          content: body,
-          source,
-          date,
-          file: `daily/${date}.md`,
-          tags: extractTags(`${firstLine} ${body}`),
-        });
+        // Split body into individual bullet points for fine-grained indexing
+        const lines = body.split("\n");
+        const bullets: string[] = [];
+        const nonBulletLines: string[] = [];
+
+        for (const line of lines) {
+          if (/^[-*]\s+/.test(line)) {
+            bullets.push(line.replace(/^[-*]\s+/, "").trim());
+          } else if (line.trim()) {
+            nonBulletLines.push(line);
+          }
+        }
+
+        // Each bullet becomes its own IndexFact
+        for (const bullet of bullets) {
+          if (!bullet) continue;
+          index.facts.push({
+            id: await contentHash(`${date}:${bullet}`),
+            content: bullet,
+            source,
+            date,
+            file,
+            tags: extractTags(bullet),
+          });
+        }
+
+        // Non-bullet content stays grouped as a single fact
+        if (nonBulletLines.length > 0) {
+          const nonBulletContent = nonBulletLines.join("\n").trim();
+          index.facts.push({
+            id: await contentHash(`${date}:${firstLine}:${nonBulletContent}`),
+            content: nonBulletContent,
+            source,
+            date,
+            file,
+            tags: extractTags(`${firstLine} ${nonBulletContent}`),
+          });
+        }
       }
     }
 
@@ -578,11 +731,18 @@ export class MemoryStore {
     // Index entities
     try {
       const entitiesContent = await Deno.readTextFile(this.entitiesPath());
-      const entityLines = entitiesContent.split("\n").filter((l) => l.startsWith("- **"));
-      const entityMap = new Map<string, { mentions: number; lastSeen: string }>();
+      const entityLines = entitiesContent.split("\n").filter((l) =>
+        l.startsWith("- **")
+      );
+      const entityMap = new Map<
+        string,
+        { mentions: number; lastSeen: string }
+      >();
 
       for (const line of entityLines) {
-        const match = line.match(/^- \*\*([^*]+)\*\*:.+\((\d{4}-\d{2}-\d{2})\)/);
+        const match = line.match(
+          /^- \*\*([^*]+)\*\*:.+\((\d{4}-\d{2}-\d{2})\)/,
+        );
         if (!match) continue;
         const name = match[1];
         const date = match[2];
@@ -620,7 +780,11 @@ export class MemoryStore {
 
     try {
       const raw = await Deno.readTextFile(this.indexPath());
-      this.indexCache = JSON.parse(raw) as MemoryIndex;
+      const index = JSON.parse(raw) as MemoryIndex;
+      if (index.version !== INDEX_VERSION) {
+        return await this.rebuildIndex();
+      }
+      this.indexCache = index;
       return this.indexCache;
     } catch {
       return await this.rebuildIndex();
@@ -669,7 +833,10 @@ export class MemoryStore {
   }
 
   /** Get relevant context for a user message (smart context loading) */
-  async getRelevantContext(userMessage: string, maxChars = 4000): Promise<string> {
+  async getRelevantContext(
+    userMessage: string,
+    maxChars = 4000,
+  ): Promise<string> {
     const parts: string[] = [];
     let budget = maxChars;
 
@@ -692,7 +859,11 @@ export class MemoryStore {
       // Score learnings by relevance to current query
       const scored = learnings.map((l) => ({
         learning: l,
-        score: scoreMatch(userMessage, `${l.topic} ${l.content}`, extractTags(l.content)),
+        score: scoreMatch(
+          userMessage,
+          `${l.topic} ${l.content}`,
+          extractTags(l.content),
+        ),
       })).sort((a, b) => b.score - a.score);
 
       const learningParts: string[] = [];
@@ -745,9 +916,24 @@ export class MemoryStore {
   // ──────────────────────────────────────────────
 
   /** Get content for weekly synthesis (called by consolidation) */
-  async getWeeklySynthesisInput(): Promise<{ existingMemory: string; weeklyNotes: string }> {
+  async getWeeklySynthesisInput(
+    since?: Date,
+  ): Promise<{ existingMemory: string; weeklyNotes: string }> {
     const existingMemory = await this.readLongTerm();
-    const notes = await this.readRecentDailyNotes(7);
+
+    // If a since date is provided, read all notes since that date.
+    // Otherwise fall back to reading all available daily notes.
+    const dates = since
+      ? await this.listDailyNotes(since)
+      : await this.listDailyNotes();
+    const notes: Array<{ date: string; content: string }> = [];
+    for (const date of dates) {
+      const content = await this.readDailyNote(date);
+      if (content.trim()) {
+        notes.push({ date, content });
+      }
+    }
+
     const weeklyNotes = notes
       .map((n) => `### ${n.date}\n\n${n.content}`)
       .join("\n\n---\n\n");
@@ -777,7 +963,9 @@ export class MemoryStore {
 
       // Atomic check-and-create for monthly archive
       try {
-        await Deno.writeTextFile(monthFile, `# Archive: ${month}\n\n`, { createNew: true });
+        await Deno.writeTextFile(monthFile, `# Archive: ${month}\n\n`, {
+          createNew: true,
+        });
       } catch (err) {
         if (!(err instanceof Deno.errors.AlreadyExists)) throw err;
       }
@@ -807,5 +995,54 @@ export class MemoryStore {
     await Deno.mkdir(this.learningsDir(), { recursive: true });
     await Deno.mkdir(this.tasksDir(), { recursive: true });
     await Deno.mkdir(join(this.dataDir, "entities"), { recursive: true });
+    await Deno.mkdir(this.versionsDir(), { recursive: true });
+  }
+
+  // ──────────────────────────────────────────────
+  // Versioning
+  // ──────────────────────────────────────────────
+
+  /** Create a versioned backup of MEMORY.md before overwriting */
+  async versionMemory(): Promise<string | null> {
+    const currentMemory = await this.readLongTerm();
+    if (!currentMemory.trim()) return null;
+
+    await Deno.mkdir(this.versionsDir(), { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const versionPath = join(this.versionsDir(), `MEMORY-${timestamp}.md`);
+    await atomicWrite(versionPath, currentMemory);
+    return versionPath;
+  }
+
+  /** List all versioned MEMORY.md backups, newest first */
+  async listVersions(): Promise<string[]> {
+    try {
+      const files: string[] = [];
+      for await (const entry of Deno.readDir(this.versionsDir())) {
+        if (
+          entry.isFile && entry.name.startsWith("MEMORY-") &&
+          entry.name.endsWith(".md")
+        ) {
+          files.push(entry.name);
+        }
+      }
+      return files.sort().reverse();
+    } catch {
+      return [];
+    }
+  }
+
+  /** Prune old versions, keeping at most maxVersions */
+  async pruneVersions(maxVersions = 10): Promise<number> {
+    const versions = await this.listVersions();
+    let pruned = 0;
+    if (versions.length <= maxVersions) return pruned;
+
+    const toRemove = versions.slice(maxVersions);
+    for (const name of toRemove) {
+      await Deno.remove(join(this.versionsDir(), name));
+      pruned++;
+    }
+    return pruned;
   }
 }

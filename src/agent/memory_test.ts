@@ -137,7 +137,10 @@ Deno.test("MemoryStore - appendDailyNote creates daily file with header and entr
 
     const content = await Deno.readTextFile(`${tmpDir}/daily/2026-02-19.md`);
     assertStringIncludes(content, "# 2026-02-19");
-    assertStringIncludes(content, "## [09:15] [telegram:matt] Deploy discussion");
+    assertStringIncludes(
+      content,
+      "## [09:15] [telegram:matt] Deploy discussion",
+    );
     assertStringIncludes(content, "- Set up GitHub Actions");
     assertStringIncludes(content, "- Use Docker multi-stage builds");
   } finally {
@@ -150,11 +153,21 @@ Deno.test("MemoryStore - appendDailyNote appends to existing file", async () => 
   try {
     const store = new MemoryStore(tmpDir);
     await store.appendDailyNote(
-      { time: "09:00", source: "cli", title: "Morning", bullets: ["First task"] },
+      {
+        time: "09:00",
+        source: "cli",
+        title: "Morning",
+        bullets: ["First task"],
+      },
       "2026-02-19",
     );
     await store.appendDailyNote(
-      { time: "14:00", source: "cli", title: "Afternoon", bullets: ["Second task"] },
+      {
+        time: "14:00",
+        source: "cli",
+        title: "Afternoon",
+        bullets: ["Second task"],
+      },
       "2026-02-19",
     );
 
@@ -245,7 +258,12 @@ Deno.test("MemoryStore - readRecentDailyNotes returns notes from past N days", a
     const store = new MemoryStore(tmpDir);
     const today = new Date().toISOString().split("T")[0];
     await store.appendDailyNote(
-      { time: "10:00", source: "test", title: "Today", bullets: ["today's note"] },
+      {
+        time: "10:00",
+        source: "test",
+        title: "Today",
+        bullets: ["today's note"],
+      },
       today,
     );
 
@@ -270,10 +288,13 @@ Deno.test("MemoryStore - saveLearning creates learning file", async () => {
       topic: "Deploy Workflow",
       learned: "2026-02-19",
       source: "correction from user",
-      content: "Always run health check after deploying to staging. Don't skip this step.",
+      content:
+        "Always run health check after deploying to staging. Don't skip this step.",
     });
 
-    const content = await Deno.readTextFile(`${tmpDir}/learnings/deploy-workflow.md`);
+    const content = await Deno.readTextFile(
+      `${tmpDir}/learnings/deploy-workflow.md`,
+    );
     assertStringIncludes(content, "# Deploy Workflow");
     assertStringIncludes(content, "**Learned**: 2026-02-19");
     assertStringIncludes(content, "correction from user");
@@ -353,15 +374,19 @@ Deno.test("MemoryStore - rebuildIndex indexes daily notes", async () => {
         time: "09:00",
         source: "telegram:matt",
         title: "OAuth2 setup",
-        bullets: ["Configured OAuth2 with PKCE flow", "Added refresh token rotation"],
+        bullets: [
+          "Configured OAuth2 with PKCE flow",
+          "Added refresh token rotation",
+        ],
       },
       "2026-02-19",
     );
 
     const index = await store.rebuildIndex();
-    assertEquals(index.version, "1.0.0");
-    assertEquals(index.facts.length >= 1, true);
-    // Check that the fact has relevant tags
+    assertEquals(index.version, "1.1.0");
+    // With bullet-level indexing, 2 bullets = 2 facts
+    assertEquals(index.facts.length, 2);
+    // Check that facts have relevant metadata
     const fact = index.facts[0];
     assertEquals(fact.date, "2026-02-19");
     assertEquals(fact.source, "telegram:matt");
@@ -429,7 +454,10 @@ Deno.test("MemoryStore - recall returns matching entries", async () => {
         time: "09:00",
         source: "telegram:matt",
         title: "OAuth2 config",
-        bullets: ["Set up OAuth2 with PKCE flow for the API", "Added token refresh"],
+        bullets: [
+          "Set up OAuth2 with PKCE flow for the API",
+          "Added token refresh",
+        ],
       },
       new Date().toISOString().split("T")[0],
     );
@@ -483,7 +511,8 @@ Deno.test("MemoryStore - recall boosts learnings", async () => {
       topic: "Docker Builds",
       learned: new Date().toISOString().split("T")[0],
       source: "correction",
-      content: "Always use multi-stage Docker builds for production. Never use single-stage Dockerfiles in production environments.",
+      content:
+        "Always use multi-stage Docker builds for production. Never use single-stage Dockerfiles in production environments.",
     });
 
     await store.rebuildIndex();
@@ -552,14 +581,24 @@ Deno.test("MemoryStore - archiveOldNotes moves old notes to monthly archive", as
     const oldMonth = oldDateStr.slice(0, 7);
 
     await store.appendDailyNote(
-      { time: "10:00", source: "test", title: "Old note", bullets: ["archived content"] },
+      {
+        time: "10:00",
+        source: "test",
+        title: "Old note",
+        bullets: ["archived content"],
+      },
       oldDateStr,
     );
 
     // Create a recent note
     const today = new Date().toISOString().split("T")[0];
     await store.appendDailyNote(
-      { time: "10:00", source: "test", title: "Recent note", bullets: ["keep this"] },
+      {
+        time: "10:00",
+        source: "test",
+        title: "Recent note",
+        bullets: ["keep this"],
+      },
       today,
     );
 
@@ -575,7 +614,9 @@ Deno.test("MemoryStore - archiveOldNotes moves old notes to monthly archive", as
     assertStringIncludes(recentContent, "keep this");
 
     // Archive file should exist
-    const archiveContent = await Deno.readTextFile(`${tmpDir}/archive/${oldMonth}.md`);
+    const archiveContent = await Deno.readTextFile(
+      `${tmpDir}/archive/${oldMonth}.md`,
+    );
     assertStringIncludes(archiveContent, "archived content");
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
@@ -640,11 +681,17 @@ Deno.test("MemoryStore - getWeeklySynthesisInput returns memory and weekly notes
 
     const today = new Date().toISOString().split("T")[0];
     await store.appendDailyNote(
-      { time: "10:00", source: "test", title: "Today's work", bullets: ["Did something important"] },
+      {
+        time: "10:00",
+        source: "test",
+        title: "Today's work",
+        bullets: ["Did something important"],
+      },
       today,
     );
 
-    const { existingMemory, weeklyNotes } = await store.getWeeklySynthesisInput();
+    const { existingMemory, weeklyNotes } = await store
+      .getWeeklySynthesisInput();
     assertStringIncludes(existingMemory, "Existing memory content");
     assertStringIncludes(weeklyNotes, "Did something important");
   } finally {
@@ -660,7 +707,11 @@ Deno.test("MemoryStore - appendDailyRaw creates entry with title from first line
   const tmpDir = await Deno.makeTempDir();
   try {
     const store = new MemoryStore(tmpDir);
-    await store.appendDailyRaw("User asked about weather\nAssistant: It's sunny", "cli:123", "2026-01-15");
+    await store.appendDailyRaw(
+      "User asked about weather\nAssistant: It's sunny",
+      "cli:123",
+      "2026-01-15",
+    );
     const content = await store.readDailyNote("2026-01-15");
     assertStringIncludes(content, "User asked about weather");
     assertStringIncludes(content, "- Assistant: It's sunny");
@@ -697,7 +748,12 @@ Deno.test("MemoryStore - readToday returns today's note", async () => {
     const store = new MemoryStore(tmpDir);
     const today = new Date().toISOString().split("T")[0];
     await store.appendDailyNote(
-      { time: "09:00", source: "test", title: "Morning work", bullets: ["Started coding"] },
+      {
+        time: "09:00",
+        source: "test",
+        title: "Morning work",
+        bullets: ["Started coding"],
+      },
       today,
     );
     const content = await store.readToday();
@@ -761,7 +817,10 @@ Deno.test("MemoryStore - saveLearning appends update to existing topic", async (
     // Read raw file to verify append
     const raw = await Deno.readTextFile(`${tmpDir}/learnings/auth-pattern.md`);
     assertStringIncludes(raw, "Use JWT tokens for API auth");
-    assertStringIncludes(raw, "Actually use short-lived JWTs with refresh tokens");
+    assertStringIncludes(
+      raw,
+      "Actually use short-lived JWTs with refresh tokens",
+    );
     assertStringIncludes(raw, "---"); // Separator between original and update
     assertStringIncludes(raw, "**Updated**: 2026-01-15");
   } finally {
@@ -805,11 +864,16 @@ Deno.test("MemoryStore - recall auto-rebuilds index after appendDailyNote", asyn
     const store = new MemoryStore(tmpDir);
     // Write a daily note — this invalidates the index cache
     await store.appendDailyNote(
-      { time: "10:00", source: "test", title: "OAuth discussion", bullets: ["Implemented OAuth2 flow", "Used PKCE for SPA"] },
+      {
+        time: "10:00",
+        source: "test",
+        title: "OAuth discussion",
+        bullets: ["Implemented OAuth2 flow", "Used PKCE for SPA"],
+      },
       "2026-02-19",
     );
     // recall should auto-rebuild and find the content
-    const results = await store.recall("OAuth");
+    const results = await store.recall("OAuth2");
     assertEquals(results.length > 0, true);
     assertStringIncludes(results[0].content, "OAuth2");
   } finally {
@@ -827,7 +891,10 @@ Deno.test("MemoryStore - recall handles entries with invalid dates gracefully", 
     const store = new MemoryStore(tmpDir);
     // Manually create a daily note with an unusual date folder name
     await Deno.mkdir(`${tmpDir}/daily`, { recursive: true });
-    await Deno.writeTextFile(`${tmpDir}/daily/not-a-date.md`, `# not-a-date\n\n## [10:00] [test] Deploy discussion\n- Set up deploy pipeline\n`);
+    await Deno.writeTextFile(
+      `${tmpDir}/daily/not-a-date.md`,
+      `# not-a-date\n\n## [10:00] [test] Deploy discussion\n- Set up deploy pipeline\n`,
+    );
     // Should not throw — NaN guard in recencyBoost handles this
     const results = await store.recall("deploy");
     // Should find the result but with a low recency score
@@ -846,7 +913,12 @@ Deno.test("MemoryStore - recall does not match unrelated entries", async () => {
   try {
     const store = new MemoryStore(tmpDir);
     await store.appendDailyNote(
-      { time: "10:00", source: "test", title: "Weather chat", bullets: ["It's sunny today", "No rain expected"] },
+      {
+        time: "10:00",
+        source: "test",
+        title: "Weather chat",
+        bullets: ["It's sunny today", "No rain expected"],
+      },
       "2026-02-19",
     );
     // Searching for completely unrelated terms should return nothing
@@ -895,7 +967,8 @@ Deno.test("MemoryStore - recall finds learnings via index without extra disk rea
       topic: "Git Workflow",
       learned: "2026-02-19",
       source: "correction",
-      content: "Always rebase feature branches before merging to main. Avoid merge commits.",
+      content:
+        "Always rebase feature branches before merging to main. Avoid merge commits.",
     });
     // Force index rebuild
     await store.rebuildIndex();
@@ -951,7 +1024,8 @@ Deno.test("MemoryStore - saveLearning slugifies topic for filename", async () =>
       topic: "OAuth 2.0 & PKCE Flow!!!",
       learned: "2026-02-19",
       source: "test",
-      content: "Use PKCE for single-page apps. Never store client secrets in the browser.",
+      content:
+        "Use PKCE for single-page apps. Never store client secrets in the browser.",
     });
     assertStringIncludes(path, "oauth-2-0-pkce-flow");
   } finally {
@@ -969,7 +1043,10 @@ Deno.test("MemoryStore - readLearnings handles malformed learning file gracefull
     const store = new MemoryStore(tmpDir);
     await Deno.mkdir(`${tmpDir}/learnings`, { recursive: true });
     // Write a malformed file with no metadata
-    await Deno.writeTextFile(`${tmpDir}/learnings/weird-file.md`, "Just some random text\nwithout any metadata\n");
+    await Deno.writeTextFile(
+      `${tmpDir}/learnings/weird-file.md`,
+      "Just some random text\nwithout any metadata\n",
+    );
     const learnings = await store.readLearnings();
     assertEquals(learnings.length, 1);
     assertEquals(learnings[0].topic, "Just some random text");
@@ -989,6 +1066,358 @@ Deno.test("MemoryStore - readLearnings handles empty learning file", async () =>
     assertEquals(learnings.length, 1);
     // Should use filename as topic fallback
     assertEquals(learnings[0].topic, "empty");
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+// ──────────────────────────────────────────────
+// MEMORY.md Versioning
+// ──────────────────────────────────────────────
+
+Deno.test("MemoryStore - versionMemory creates versioned backup", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+    await store.writeLongTerm("Original memory content");
+    const path = await store.versionMemory();
+    assertEquals(path !== null, true);
+    // Verify backup file exists and contains original content
+    const content = await Deno.readTextFile(path!);
+    assertEquals(content, "Original memory content");
+    // Verify MEMORY.md is NOT modified
+    const current = await store.readLongTerm();
+    assertEquals(current, "Original memory content");
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("MemoryStore - versionMemory returns null when MEMORY.md is empty", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+    const path = await store.versionMemory();
+    assertEquals(path, null);
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("MemoryStore - listVersions returns versions newest first", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+    await store.writeLongTerm("v1");
+    await store.versionMemory();
+    await new Promise((r) => setTimeout(r, 10));
+    await store.writeLongTerm("v2");
+    await store.versionMemory();
+
+    const versions = await store.listVersions();
+    assertEquals(versions.length, 2);
+    // Newest first (ISO timestamps sort lexicographically descending)
+    assertEquals(versions[0] > versions[1], true);
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("MemoryStore - pruneVersions keeps only maxVersions", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+    for (let i = 0; i < 5; i++) {
+      await store.writeLongTerm(`memory v${i}`);
+      await store.versionMemory();
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const before = await store.listVersions();
+    assertEquals(before.length, 5);
+
+    const pruned = await store.pruneVersions(3);
+    assertEquals(pruned, 2);
+    const after = await store.listVersions();
+    assertEquals(after.length, 3);
+    // Verify we kept the 3 newest
+    assertEquals(after[0], before[0]);
+    assertEquals(after[1], before[1]);
+    assertEquals(after[2], before[2]);
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("MemoryStore - listVersions returns empty when no versions exist", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+    const versions = await store.listVersions();
+    assertEquals(versions.length, 0);
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+// ──────────────────────────────────────────────
+// Fact-Level Index Granularity
+// ──────────────────────────────────────────────
+
+Deno.test("MemoryStore - rebuildIndex indexes individual bullets as separate facts", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+    await store.appendDailyNote(
+      {
+        time: "09:00",
+        source: "telegram:matt",
+        title: "Mixed topics",
+        bullets: [
+          "Configured OAuth2 with PKCE flow",
+          "Set up Docker multi-stage builds",
+          "Discussed API rate limiting",
+        ],
+      },
+      "2026-02-19",
+    );
+
+    const index = await store.rebuildIndex();
+    assertEquals(index.facts.length, 3);
+
+    const contents = index.facts.map((f) => f.content);
+    assertEquals(contents.includes("Configured OAuth2 with PKCE flow"), true);
+    assertEquals(contents.includes("Set up Docker multi-stage builds"), true);
+    assertEquals(contents.includes("Discussed API rate limiting"), true);
+
+    // Each fact should have focused tags from just its own content
+    const oauthFact = index.facts.find((f) => f.content.includes("OAuth2"))!;
+    assertEquals(oauthFact.tags.includes("oauth2"), true);
+    assertEquals(oauthFact.source, "telegram:matt");
+    assertEquals(oauthFact.date, "2026-02-19");
+    assertEquals(oauthFact.file, "daily/2026-02-19.md");
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("MemoryStore - rebuildIndex handles non-bullet paragraphs as single fact", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+    await Deno.mkdir(`${tmpDir}/daily`, { recursive: true });
+    await Deno.writeTextFile(
+      `${tmpDir}/daily/2026-02-19.md`,
+      `# 2026-02-19\n\n## [09:00] [test] Summary\nThis is a paragraph of text.\nIt spans multiple lines but has no bullets.\n`,
+    );
+
+    const index = await store.rebuildIndex();
+    assertEquals(index.facts.length, 1);
+    assertStringIncludes(
+      index.facts[0].content,
+      "This is a paragraph of text.",
+    );
+    assertStringIncludes(index.facts[0].content, "It spans multiple lines");
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("MemoryStore - rebuildIndex handles mixed bullets and paragraphs", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+    await Deno.mkdir(`${tmpDir}/daily`, { recursive: true });
+    await Deno.writeTextFile(
+      `${tmpDir}/daily/2026-02-19.md`,
+      `# 2026-02-19\n\n## [09:00] [test] Mixed content\nSome intro paragraph.\n- Bullet point one\n- Bullet point two\n`,
+    );
+
+    const index = await store.rebuildIndex();
+    // 2 bullet facts + 1 paragraph fact = 3 total
+    assertEquals(index.facts.length, 3);
+
+    const contents = index.facts.map((f) => f.content);
+    assertEquals(contents.includes("Bullet point one"), true);
+    assertEquals(contents.includes("Bullet point two"), true);
+    assertEquals(
+      contents.some((c) => c.includes("Some intro paragraph")),
+      true,
+    );
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("MemoryStore - recall returns precise matches with bullet-level indexing", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+    await store.appendDailyNote(
+      {
+        time: "09:00",
+        source: "test",
+        title: "Various topics",
+        bullets: [
+          "Configured OAuth2 authentication for the API",
+          "Weather in San Francisco was sunny today",
+          "Docker container builds taking too long",
+        ],
+      },
+      new Date().toISOString().split("T")[0],
+    );
+    await store.rebuildIndex();
+
+    // Search for OAuth should return only the OAuth bullet
+    const results = await store.recall("OAuth2 authentication");
+    assertEquals(results.length >= 1, true);
+    assertStringIncludes(results[0].content, "OAuth2");
+    // The top result should NOT contain weather or Docker content
+    assertEquals(results[0].content.includes("Weather"), false);
+    assertEquals(results[0].content.includes("Docker"), false);
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+// ──────────────────────────────────────────────
+// Synthesis Window Gap Fix
+// ──────────────────────────────────────────────
+
+Deno.test("MemoryStore - getWeeklySynthesisInput with since date only reads notes after that date", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+    await store.writeLongTerm("Existing memory");
+
+    await store.appendDailyNote(
+      {
+        time: "10:00",
+        source: "test",
+        title: "Old note",
+        bullets: ["old content"],
+      },
+      "2026-01-01",
+    );
+    await store.appendDailyNote(
+      {
+        time: "10:00",
+        source: "test",
+        title: "Recent note",
+        bullets: ["recent content"],
+      },
+      "2026-01-10",
+    );
+    await store.appendDailyNote(
+      {
+        time: "10:00",
+        source: "test",
+        title: "Newest note",
+        bullets: ["newest content"],
+      },
+      "2026-01-15",
+    );
+
+    const { weeklyNotes } = await store.getWeeklySynthesisInput(
+      new Date("2026-01-05"),
+    );
+    assertStringIncludes(weeklyNotes, "recent content");
+    assertStringIncludes(weeklyNotes, "newest content");
+    assertEquals(weeklyNotes.includes("old content"), false);
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("MemoryStore - getWeeklySynthesisInput without since date reads all notes", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+
+    await store.appendDailyNote(
+      {
+        time: "10:00",
+        source: "test",
+        title: "Old note",
+        bullets: ["old content"],
+      },
+      "2025-06-01",
+    );
+    await store.appendDailyNote(
+      {
+        time: "10:00",
+        source: "test",
+        title: "Recent note",
+        bullets: ["recent content"],
+      },
+      "2026-01-15",
+    );
+
+    const { weeklyNotes } = await store.getWeeklySynthesisInput();
+    assertStringIncludes(weeklyNotes, "old content");
+    assertStringIncludes(weeklyNotes, "recent content");
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("MemoryStore - getWeeklySynthesisInput with since date returns empty when no notes match", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+
+    await store.appendDailyNote(
+      {
+        time: "10:00",
+        source: "test",
+        title: "Old note",
+        bullets: ["old content"],
+      },
+      "2025-01-01",
+    );
+
+    const { weeklyNotes } = await store.getWeeklySynthesisInput(
+      new Date("2026-01-01"),
+    );
+    assertEquals(weeklyNotes, "");
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("MemoryStore - loadIndex rebuilds when version is outdated", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const store = new MemoryStore(tmpDir);
+    await store.ensureDirectories();
+
+    // Write an old-version index
+    await Deno.writeTextFile(
+      `${tmpDir}/.index.json`,
+      JSON.stringify({
+        version: "1.0.0",
+        lastRebuilt: new Date().toISOString(),
+        facts: [],
+        entities: [],
+        learnings: [],
+      }),
+    );
+
+    // Create a daily note so rebuild has something to index
+    await store.appendDailyNote(
+      {
+        time: "10:00",
+        source: "test",
+        title: "Test",
+        bullets: ["Bullet one", "Bullet two"],
+      },
+      "2026-02-19",
+    );
+
+    // loadIndex should detect version mismatch and rebuild
+    const index = await store.loadIndex();
+    assertEquals(index.version, "1.1.0");
+    // Rebuilt index should have bullet-level facts
+    assertEquals(index.facts.length, 2);
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }

@@ -146,16 +146,22 @@ export async function runGateway(): Promise<void> {
     try {
       const lastSynthesisPath = `${config.data_dir}/.last-weekly-synthesis`;
       let shouldSynthesize = false;
+      let sinceDate: Date | undefined;
       try {
         const lastRun = await Deno.readTextFile(lastSynthesisPath);
-        const daysSince = (Date.now() - new Date(lastRun.trim()).getTime()) / (1000 * 60 * 60 * 24);
+        const lastRunDate = new Date(lastRun.trim());
+        const daysSince = (Date.now() - lastRunDate.getTime()) /
+          (1000 * 60 * 60 * 24);
         shouldSynthesize = daysSince >= 7;
+        if (shouldSynthesize) {
+          sinceDate = lastRunDate;
+        }
       } catch {
-        shouldSynthesize = true; // No record = never run
+        shouldSynthesize = true; // No record = never run; sinceDate stays undefined (read all)
       }
       if (shouldSynthesize) {
         console.log("Running weekly memory synthesis...");
-        await agent.synthesizeWeekly();
+        await agent.synthesizeWeekly(sinceDate);
         await Deno.writeTextFile(lastSynthesisPath, new Date().toISOString());
       }
     } catch (err) {

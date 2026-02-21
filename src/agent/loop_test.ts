@@ -91,7 +91,9 @@ function makeFakeBus(inboundMessages: InboundMessage[] = []): {
       if (!msg) return new Promise(() => {}); // never resolves
       return msg;
     },
-    async consumeInboundWithTimeout(timeoutMs: number): Promise<InboundMessage | null> {
+    async consumeInboundWithTimeout(
+      timeoutMs: number,
+    ): Promise<InboundMessage | null> {
       const msg = queue.shift();
       if (msg) return msg;
       if (stopped) return null;
@@ -118,8 +120,12 @@ function makeFakeBus(inboundMessages: InboundMessage[] = []): {
     subscribeOutbound(_channel: string, _cb: unknown): void {},
     async dispatchOutbound(): Promise<void> {},
     stop(): void {},
-    get inboundSize() { return queue.length; },
-    get outboundSize() { return published.length; },
+    get inboundSize() {
+      return queue.length;
+    },
+    get outboundSize() {
+      return published.length;
+    },
   } as unknown as MessageBus;
 
   const stop = () => {
@@ -156,7 +162,12 @@ Deno.test("AgentLoop - processDirect returns LLM response content", async () => 
   try {
     const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
     const provider = makeFakeProvider([
-      { content: "Direct response", toolCalls: [], finishReason: "stop", usage: {} },
+      {
+        content: "Direct response",
+        toolCalls: [],
+        finishReason: "stop",
+        usage: {},
+      },
     ]);
     const { bus } = makeFakeBus();
     const loop = new AgentLoop(bus, provider, config);
@@ -174,7 +185,12 @@ Deno.test("AgentLoop - processDirect returns error message when provider returns
   try {
     const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
     const provider = makeFakeProvider([
-      { content: "Something went wrong", toolCalls: [], finishReason: "error", usage: {} },
+      {
+        content: "Something went wrong",
+        toolCalls: [],
+        finishReason: "error",
+        usage: {},
+      },
     ]);
     const { bus } = makeFakeBus();
     const loop = new AgentLoop(bus, provider, config);
@@ -198,7 +214,10 @@ Deno.test("AgentLoop - processDirect returns fallback when provider returns erro
     const loop = new AgentLoop(bus, provider, config);
 
     const result = await loop.processDirect("slack", "chat1", "Hello");
-    assertEquals(result, "Sorry, I encountered an error processing your request.");
+    assertEquals(
+      result,
+      "Sorry, I encountered an error processing your request.",
+    );
     await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
@@ -217,7 +236,12 @@ Deno.test("AgentLoop - processDirect executes tool calls when provider returns t
         finishReason: "tool_calls",
         usage: {},
       },
-      { content: "Files listed!", toolCalls: [], finishReason: "stop", usage: {} },
+      {
+        content: "Files listed!",
+        toolCalls: [],
+        finishReason: "stop",
+        usage: {},
+      },
     ]);
     const { bus } = makeFakeBus();
     const loop = new AgentLoop(bus, provider, config);
@@ -237,7 +261,14 @@ Deno.test("AgentLoop - processDirect stops at maxIterations with fallback messag
     const config = makeConfig({
       data_dir: tmpDir,
       workspace: tmpDir,
-      agents: { models: { heartbeat: "openrouter/free" }, temperature: 0.7, max_tokens: 1000, memory_window: 10, consolidation_threshold: 50, max_iterations: 2 },
+      agents: {
+        models: { heartbeat: "openrouter/free" },
+        temperature: 0.7,
+        max_tokens: 1000,
+        memory_window: 10,
+        consolidation_threshold: 50,
+        max_iterations: 2,
+      },
     });
     // Always returns tool calls so we never finish naturally
     const toolCallResponse: FakeResponse = {
@@ -246,7 +277,11 @@ Deno.test("AgentLoop - processDirect stops at maxIterations with fallback messag
       finishReason: "tool_calls",
       usage: {},
     };
-    const provider = makeFakeProvider([toolCallResponse, toolCallResponse, toolCallResponse]);
+    const provider = makeFakeProvider([
+      toolCallResponse,
+      toolCallResponse,
+      toolCallResponse,
+    ]);
     const { bus } = makeFakeBus();
     const loop = new AgentLoop(bus, provider, config);
 
@@ -389,7 +424,11 @@ Deno.test("AgentLoop - reasoning_content is passed through to provider on next i
           // First call: return a tool call with reasoning_content
           return {
             content: "Let me check",
-            toolCalls: [{ id: "tc1", name: "list_dir", arguments: { path: "." } }],
+            toolCalls: [{
+              id: "tc1",
+              name: "list_dir",
+              arguments: { path: "." },
+            }],
             finishReason: "tool_calls",
             reasoning_content: "I should list the directory first",
             usage: {},
@@ -397,9 +436,16 @@ Deno.test("AgentLoop - reasoning_content is passed through to provider on next i
         }
         // Second call: capture messages to verify reasoning_content was included
         secondCallMessages = params.messages as Array<Record<string, unknown>>;
-        return { content: "Done", toolCalls: [], finishReason: "stop", usage: {} };
+        return {
+          content: "Done",
+          toolCalls: [],
+          finishReason: "stop",
+          usage: {},
+        };
       },
-      getDefaultModel() { return "fake"; },
+      getDefaultModel() {
+        return "fake";
+      },
     };
     const { bus } = makeFakeBus();
     const loop = new AgentLoop(bus, provider, config);
@@ -408,7 +454,10 @@ Deno.test("AgentLoop - reasoning_content is passed through to provider on next i
 
     // Find the assistant message in the second call's messages
     const assistantMsg = secondCallMessages.find((m) => m.role === "assistant");
-    assertEquals(assistantMsg?.reasoning_content, "I should list the directory first");
+    assertEquals(
+      assistantMsg?.reasoning_content,
+      "I should list the directory first",
+    );
     await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
@@ -427,15 +476,26 @@ Deno.test("AgentLoop - reasoning_content omitted from message when not present",
         if (callCount === 1) {
           return {
             content: "Let me check",
-            toolCalls: [{ id: "tc1", name: "list_dir", arguments: { path: "." } }],
+            toolCalls: [{
+              id: "tc1",
+              name: "list_dir",
+              arguments: { path: "." },
+            }],
             finishReason: "tool_calls",
             usage: {},
           };
         }
         secondCallMessages = params.messages as Array<Record<string, unknown>>;
-        return { content: "Done", toolCalls: [], finishReason: "stop", usage: {} };
+        return {
+          content: "Done",
+          toolCalls: [],
+          finishReason: "stop",
+          usage: {},
+        };
       },
-      getDefaultModel() { return "fake"; },
+      getDefaultModel() {
+        return "fake";
+      },
     };
     const { bus } = makeFakeBus();
     const loop = new AgentLoop(bus, provider, config);
@@ -457,7 +517,14 @@ Deno.test("AgentLoop - memory consolidation triggers when message count exceeds 
     const config = makeConfig({
       data_dir: tmpDir,
       workspace: tmpDir,
-      agents: { models: { heartbeat: "openrouter/free" }, temperature: 0.7, max_tokens: 1000, memory_window: 2, consolidation_threshold: 2, max_iterations: 5 },
+      agents: {
+        models: { heartbeat: "openrouter/free" },
+        temperature: 0.7,
+        max_tokens: 1000,
+        memory_window: 2,
+        consolidation_threshold: 2,
+        max_iterations: 5,
+      },
     });
 
     let consolidationCalled = false;
@@ -468,15 +535,27 @@ Deno.test("AgentLoop - memory consolidation triggers when message count exceeds 
         if (
           typeof lastMsg?.content === "string" &&
           (lastMsg.content.includes("memory consolidation") ||
-           lastMsg.content.includes("memory extraction") ||
-           lastMsg.content.includes("Extract noteworthy"))
+            lastMsg.content.includes("memory extraction") ||
+            lastMsg.content.includes("Extract noteworthy"))
         ) {
           consolidationCalled = true;
-          return { content: "- User prefers dark mode", toolCalls: [], finishReason: "stop", usage: {} };
+          return {
+            content: "- User prefers dark mode",
+            toolCalls: [],
+            finishReason: "stop",
+            usage: {},
+          };
         }
-        return { content: "Response", toolCalls: [], finishReason: "stop", usage: {} };
+        return {
+          content: "Response",
+          toolCalls: [],
+          finishReason: "stop",
+          usage: {},
+        };
       },
-      getDefaultModel() { return "fake"; },
+      getDefaultModel() {
+        return "fake";
+      },
     };
 
     const inbound = [makeInboundMsg("Hello there")];
@@ -512,11 +591,21 @@ Deno.test("AgentLoop - spawn tool is registered", async () => {
     const inspectingProvider: LLMProvider = {
       async chat(params) {
         if (toolNames.length === 0) {
-          toolNames = ((params.tools ?? []) as Array<{ function: { name: string } }>).map((t) => t.function.name);
+          toolNames =
+            ((params.tools ?? []) as Array<{ function: { name: string } }>).map(
+              (t) => t.function.name,
+            );
         }
-        return { content: "Done", toolCalls: [], finishReason: "stop", usage: {} };
+        return {
+          content: "Done",
+          toolCalls: [],
+          finishReason: "stop",
+          usage: {},
+        };
       },
-      getDefaultModel() { return "fake"; },
+      getDefaultModel() {
+        return "fake";
+      },
     };
     const { bus } = makeFakeBus();
     const loop = new AgentLoop(bus, inspectingProvider, config);
@@ -534,7 +623,12 @@ Deno.test("AgentLoop - system message routes response to original channel", asyn
   try {
     const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
     const provider = makeFakeProvider([
-      { content: "Background task result summary", toolCalls: [], finishReason: "stop", usage: {} },
+      {
+        content: "Background task result summary",
+        toolCalls: [],
+        finishReason: "stop",
+        usage: {},
+      },
     ]);
     // System message with chatId encoding original destination
     const systemMsg: InboundMessage = {
@@ -565,7 +659,10 @@ Deno.test("AgentLoop - system message routes response to original channel", asyn
     assertEquals(published.length, 1);
     assertEquals(published[0].channel, "slack");
     assertEquals(published[0].chatId, "chat42");
-    assertStringIncludes(published[0].content, "Background task result summary");
+    assertStringIncludes(
+      published[0].content,
+      "Background task result summary",
+    );
     await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
@@ -577,7 +674,12 @@ Deno.test("AgentLoop - system message with no colon in chatId falls back", async
   try {
     const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
     const provider = makeFakeProvider([
-      { content: "Fallback response", toolCalls: [], finishReason: "stop", usage: {} },
+      {
+        content: "Fallback response",
+        toolCalls: [],
+        finishReason: "stop",
+        usage: {},
+      },
     ]);
     const systemMsg: InboundMessage = {
       channel: "system",
@@ -614,13 +716,150 @@ Deno.test("AgentLoop - system message with no colon in chatId falls back", async
   }
 });
 
+Deno.test("AgentLoop - /new extracts unextracted messages before clearing session", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
+
+    let extractionCalled = false;
+    const provider: LLMProvider = {
+      async chat(params) {
+        const lastMsg = params.messages[params.messages.length - 1];
+        if (
+          typeof lastMsg?.content === "string" &&
+          lastMsg.content.includes("Extract noteworthy")
+        ) {
+          extractionCalled = true;
+          return {
+            content: "- User discussed deployment strategy",
+            toolCalls: [],
+            finishReason: "stop",
+            usage: {},
+          };
+        }
+        return {
+          content: "Response",
+          toolCalls: [],
+          finishReason: "stop",
+          usage: {},
+        };
+      },
+      getDefaultModel() {
+        return "fake";
+      },
+    };
+
+    // Send 2 regular messages first (each creates user+assistant = 4 session messages >= 3), then /new
+    const inbound = [
+      makeInboundMsg("First message"),
+      makeInboundMsg("Second message"),
+      makeInboundMsg("/new"),
+    ];
+    const { bus, published, stop: busStop } = makeFakeBus(inbound);
+    const loop = new AgentLoop(bus, provider, config);
+
+    const runPromise = loop.run();
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        if (
+          published.some((p) =>
+            p.content === "Session cleared. Starting fresh!"
+          )
+        ) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 10);
+    });
+    loop.stop();
+    busStop();
+    await runPromise;
+
+    // Extraction should have been called before clearing
+    assertEquals(extractionCalled, true);
+    await loop.closeMcp();
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("AgentLoop - /new skips extraction when fewer than 3 unextracted messages", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
+
+    let extractionCalled = false;
+    const provider: LLMProvider = {
+      async chat(params) {
+        const lastMsg = params.messages[params.messages.length - 1];
+        if (
+          typeof lastMsg?.content === "string" &&
+          lastMsg.content.includes("Extract noteworthy")
+        ) {
+          extractionCalled = true;
+          return {
+            content: "- Extracted fact",
+            toolCalls: [],
+            finishReason: "stop",
+            usage: {},
+          };
+        }
+        return {
+          content: "Response",
+          toolCalls: [],
+          finishReason: "stop",
+          usage: {},
+        };
+      },
+      getDefaultModel() {
+        return "fake";
+      },
+    };
+
+    // Send only /new with no prior messages — too few for extraction
+    const inbound = [makeInboundMsg("/new")];
+    const { bus, published, stop: busStop } = makeFakeBus(inbound);
+    const loop = new AgentLoop(bus, provider, config);
+
+    const runPromise = loop.run();
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        if (
+          published.some((p) =>
+            p.content === "Session cleared. Starting fresh!"
+          )
+        ) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 10);
+    });
+    loop.stop();
+    busStop();
+    await runPromise;
+
+    // Extraction should NOT have been called (0 session messages < 3)
+    assertEquals(extractionCalled, false);
+    await loop.closeMcp();
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
 Deno.test("AgentLoop - memory consolidation handles provider errors gracefully", async () => {
   const tmpDir = await Deno.makeTempDir();
   try {
     const config = makeConfig({
       data_dir: tmpDir,
       workspace: tmpDir,
-      agents: { models: { heartbeat: "openrouter/free" }, temperature: 0.7, max_tokens: 1000, memory_window: 2, consolidation_threshold: 2, max_iterations: 5 },
+      agents: {
+        models: { heartbeat: "openrouter/free" },
+        temperature: 0.7,
+        max_tokens: 1000,
+        memory_window: 2,
+        consolidation_threshold: 2,
+        max_iterations: 5,
+      },
     });
 
     let callCount = 0;
@@ -634,9 +873,16 @@ Deno.test("AgentLoop - memory consolidation handles provider errors gracefully",
         ) {
           throw new Error("Provider crashed during consolidation");
         }
-        return { content: "Response", toolCalls: [], finishReason: "stop", usage: {} };
+        return {
+          content: "Response",
+          toolCalls: [],
+          finishReason: "stop",
+          usage: {},
+        };
       },
-      getDefaultModel() { return "fake"; },
+      getDefaultModel() {
+        return "fake";
+      },
     };
 
     const inbound = [makeInboundMsg("Hello there")];

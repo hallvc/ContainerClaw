@@ -3,7 +3,12 @@ import type { InboundMessage } from "../bus/events.ts";
 import { getSessionKey } from "../bus/events.ts";
 import type { LLMProvider } from "../providers/base.ts";
 import { ToolRegistry } from "./tools/base.ts";
-import { ReadFileTool, WriteFileTool, EditFileTool, ListDirTool } from "./tools/filesystem.ts";
+import {
+  EditFileTool,
+  ListDirTool,
+  ReadFileTool,
+  WriteFileTool,
+} from "./tools/filesystem.ts";
 import { ExecTool } from "./tools/shell.ts";
 import { WebFetchTool } from "./tools/web.ts";
 import { MessageTool } from "./tools/message.ts";
@@ -66,8 +71,12 @@ export class AgentLoop {
     this.tools.register(new WriteFileTool(workspace));
     this.tools.register(new EditFileTool(workspace));
     this.tools.register(new ListDirTool(workspace));
-    this.tools.register(new ExecTool(workspace, this.config.tools.exec_timeout_ms));
-    this.tools.register(new MessageTool((msg) => this.bus.publishOutbound(msg)));
+    this.tools.register(
+      new ExecTool(workspace, this.config.tools.exec_timeout_ms),
+    );
+    this.tools.register(
+      new MessageTool((msg) => this.bus.publishOutbound(msg)),
+    );
     this.tools.register(new SpawnTool(this.subagents));
 
     if (this.cronService) {
@@ -88,7 +97,9 @@ export class AgentLoop {
 
   async closeMcp(): Promise<void> {
     for (const fn of this._mcpCleanup) {
-      try { await fn(); } catch { /* ignore cleanup errors */ }
+      try {
+        await fn();
+      } catch { /* ignore cleanup errors */ }
     }
   }
 
@@ -155,6 +166,13 @@ export class AgentLoop {
 
     // Handle slash commands
     if (msg.content.trim().toLowerCase() === "/new") {
+      // Extract unextracted messages before clearing to avoid data loss
+      const unextractedCount = session.messages.length -
+        session.lastConsolidated;
+      if (unextractedCount >= 3) {
+        const source = `${msg.channel}:${msg.chatId}`;
+        await this.extractToDaily(session, sessionKey, source);
+      }
       session.clear();
       this.sessions.save(session);
       await this.bus.publishOutbound({
@@ -171,7 +189,8 @@ export class AgentLoop {
       await this.bus.publishOutbound({
         channel: msg.channel,
         chatId: msg.chatId,
-        content: "Available commands:\n- `/new` - Clear session and start fresh\n- `/help` - Show this help message\n\nI can also help with file operations, running commands, web searches, and more!",
+        content:
+          "Available commands:\n- `/new` - Clear session and start fresh\n- `/help` - Show this help message\n\nI can also help with file operations, running commands, web searches, and more!",
         media: [],
         metadata: msg.metadata,
       });
@@ -182,11 +201,19 @@ export class AgentLoop {
     session.addMessage("user", msg.content);
 
     // Build context
-    const context = new ContextBuilder(this.config.workspace, this.memory, this.skills);
+    const context = new ContextBuilder(
+      this.config.workspace,
+      this.memory,
+      this.skills,
+    );
     const history = session.getHistory(this.config.agents.memory_window);
     // Remove the last message from history since we'll add it as the current message
     const pastHistory = history.slice(0, -1);
-    const messages = await context.buildMessages(pastHistory, msg.content, msg.media);
+    const messages = await context.buildMessages(
+      pastHistory,
+      msg.content,
+      msg.media,
+    );
 
     // Run agent iteration loop
     const response = await this.runAgentLoop(context, messages);
@@ -197,9 +224,13 @@ export class AgentLoop {
 
     // Legacy history log (daily notes populated by Tier 1 extraction instead)
     const source = `${msg.channel}:${msg.chatId}`;
-    const truncatedResponse = response.length > 200 ? response.slice(0, 200) + "..." : response;
+    const truncatedResponse = response.length > 200
+      ? response.slice(0, 200) + "..."
+      : response;
     await this.memory.appendHistory(`[${source}] User: ${msg.content}`);
-    await this.memory.appendHistory(`[${source}] Assistant: ${truncatedResponse}`);
+    await this.memory.appendHistory(
+      `[${source}] Assistant: ${truncatedResponse}`,
+    );
 
     // Check if extraction to daily note is needed (Tier 1 consolidation)
     const messageCount = session.messages.length;
@@ -235,7 +266,11 @@ export class AgentLoop {
     const session = this.sessions.getOrCreate(sessionKey);
     this.setToolContext(originChannel, originChatId);
 
-    const context = new ContextBuilder(this.config.workspace, this.memory, this.skills);
+    const context = new ContextBuilder(
+      this.config.workspace,
+      this.memory,
+      this.skills,
+    );
     const history = session.getHistory(this.config.agents.memory_window);
     const messages = await context.buildMessages(history, msg.content, []);
 
@@ -256,7 +291,15 @@ export class AgentLoop {
 
   private async runAgentLoop(
     context: ContextBuilder,
-    messages: Array<{ role: string; content: string | null; tool_calls?: unknown[]; tool_call_id?: string; name?: string }>,
+    messages: Array<
+      {
+        role: string;
+        content: string | null;
+        tool_calls?: unknown[];
+        tool_call_id?: string;
+        name?: string;
+      }
+    >,
   ): Promise<string> {
     const maxIterations = this.config.agents.max_iterations;
     let lastContent = "";
@@ -271,7 +314,8 @@ export class AgentLoop {
       });
 
       if (response.finishReason === "error") {
-        return response.content ?? "Sorry, I encountered an error processing your request.";
+        return response.content ??
+          "Sorry, I encountered an error processing your request.";
       }
 
       if (response.content) {
@@ -284,7 +328,11 @@ export class AgentLoop {
       }
 
       // Add assistant message with tool calls
-      context.addAssistantMessage(response.content, response.toolCalls, response.reasoning_content);
+      context.addAssistantMessage(
+        response.content,
+        response.toolCalls,
+        response.reasoning_content,
+      );
 
       if (response.reasoning_content) {
         console.log(`Reasoning: ${response.reasoning_content.slice(0, 200)}`);
@@ -292,7 +340,11 @@ export class AgentLoop {
 
       // Execute each tool call
       for (const tc of response.toolCalls) {
-        console.log(`Tool call: ${tc.name}(${JSON.stringify(tc.arguments).slice(0, 100)})`);
+        console.log(
+          `Tool call: ${tc.name}(${
+            JSON.stringify(tc.arguments).slice(0, 100)
+          })`,
+        );
         const result = await this.tools.execute(tc.name, tc.arguments);
         context.addToolResult(tc.id, tc.name, result);
       }
@@ -301,7 +353,8 @@ export class AgentLoop {
       messages = context.getMessages();
     }
 
-    return lastContent || "I reached the maximum number of iterations. Here's what I have so far.";
+    return lastContent ||
+      "I reached the maximum number of iterations. Here's what I have so far.";
   }
 
   /**
@@ -319,7 +372,8 @@ export class AgentLoop {
         .map((m) => `${m.role}: ${m.content}`)
         .join("\n");
 
-      const extractionPrompt = `You are a memory extraction assistant. Extract noteworthy facts, decisions, preferences, and TODOs from this conversation.
+      const extractionPrompt =
+        `You are a memory extraction assistant. Extract noteworthy facts, decisions, preferences, and TODOs from this conversation.
 
 ## Recent Conversation
 ${recentMessages}
@@ -368,17 +422,18 @@ Output ONLY the bullet list, no explanation or headers.`;
    * Tier 2 consolidation: Weekly synthesis of daily notes into MEMORY.md.
    * Called by heartbeat/cron, not on the hot path.
    */
-  async synthesizeWeekly(): Promise<void> {
+  async synthesizeWeekly(since?: Date): Promise<void> {
     try {
-      const { existingMemory, weeklyNotes } =
-        await this.memory.getWeeklySynthesisInput();
+      const { existingMemory, weeklyNotes } = await this.memory
+        .getWeeklySynthesisInput(since);
 
       if (!weeklyNotes.trim()) {
         console.log("Weekly synthesis: no daily notes to synthesize.");
         return;
       }
 
-      const synthesisPrompt = `You are a memory synthesis assistant. Given the past week's daily notes and the current long-term memory, produce an updated MEMORY.md.
+      const synthesisPrompt =
+        `You are a memory synthesis assistant. Given the past week's daily notes and the current long-term memory, produce an updated MEMORY.md.
 
 ## Current MEMORY.md
 ${existingMemory || "(empty)"}
@@ -404,8 +459,15 @@ Output ONLY the memory content, no explanation.`;
       });
 
       if (response.content && response.finishReason !== "error") {
+        // Version existing MEMORY.md before overwriting
+        const versionPath = await this.memory.versionMemory();
+        if (versionPath) {
+          console.log(`Versioned MEMORY.md to ${versionPath}`);
+        }
         await this.memory.writeLongTerm(response.content);
         console.log("Weekly synthesis complete — MEMORY.md updated.");
+        // Prune old versions (keep 10)
+        await this.memory.pruneVersions(10);
       }
 
       // Archive old daily notes (older than 30 days)
@@ -427,7 +489,11 @@ Output ONLY the memory content, no explanation.`;
     content: string,
   ): Promise<string> {
     await this.connectMcp();
-    const context = new ContextBuilder(this.config.workspace, this.memory, this.skills);
+    const context = new ContextBuilder(
+      this.config.workspace,
+      this.memory,
+      this.skills,
+    );
     const messages = await context.buildMessages([], content, []);
     return await this.runAgentLoop(context, messages);
   }
