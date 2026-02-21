@@ -3,7 +3,7 @@ import type { Config } from "../../config/schema.ts";
 import { getStatus, renderStatus } from "./status.ts";
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
-  return {
+  return ({
     slack: {
       bot_token: "",
       app_token: "",
@@ -35,7 +35,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     workspace: "/workspace",
     data_dir: "/data",
     ...overrides,
-  };
+  }) as Config;
 }
 
 Deno.test("getStatus - returns correct workspace and data_dir", () => {

@@ -37,6 +37,20 @@ export class ToolRegistry {
     }
   }
 
+  async executeParallel(
+    calls: Array<{ name: string; args: Record<string, unknown> }>,
+  ): Promise<Array<{ name: string; result: string }>> {
+    const results = await Promise.allSettled(
+      calls.map((c) => this.execute(c.name, c.args)),
+    );
+    return results.map((r, i) => ({
+      name: calls[i].name,
+      result: r.status === "fulfilled"
+        ? r.value
+        : `Error executing tool "${calls[i].name}": ${r.reason}`,
+    }));
+  }
+
   getDefinitions(): Array<{
     type: "function";
     function: {

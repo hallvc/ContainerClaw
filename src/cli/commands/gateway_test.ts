@@ -3,7 +3,7 @@ import type { Config } from "../../config/schema.ts";
 import { detectChannels } from "./gateway.ts";
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
-  return {
+  return ({
     slack: {
       bot_token: "",
       app_token: "",
@@ -35,7 +35,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     workspace: "/tmp/test-workspace",
     data_dir: "/tmp/test-data",
     ...overrides,
-  };
+  }) as Config;
 }
 
 Deno.test("detectChannels - no channels configured", () => {

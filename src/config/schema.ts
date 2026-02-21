@@ -40,6 +40,7 @@ export const AgentsConfigSchema = z.object({
   memory_window: z.number().int().positive().default(50),
   consolidation_threshold: z.number().int().positive().default(50),
   max_iterations: z.number().int().positive().default(20),
+  token_budget: z.number().int().positive().optional(),
 });
 
 export const EmailConfigSchema = z.object({

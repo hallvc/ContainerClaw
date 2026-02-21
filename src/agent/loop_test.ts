@@ -38,10 +38,11 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     telegram: { bot_token: "", allow_from: [] },
     tools: { exec_timeout_ms: 60_000 },
     heartbeat: { enabled: false, interval_seconds: 1800 },
+    cron: { enabled: false, tick_interval_ms: 30_000, job_timeout_ms: 300_000 },
     workspace: "/tmp/test-workspace",
     data_dir: "/tmp/test-data",
     ...overrides,
-  };
+  } as Config;
 }
 
 // ---------------------------------------------------------------------------
@@ -906,6 +907,235 @@ Deno.test("AgentLoop - memory consolidation handles provider errors gracefully",
     // Despite the consolidation error, the main response was still published
     assertEquals(published.length, 1);
     assertEquals(published[0].content, "Response");
+    await loop.closeMcp();
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2: Error boundary in processMessage
+// ---------------------------------------------------------------------------
+
+Deno.test("AgentLoop - processMessage publishes error response when provider throws", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
+    const provider: LLMProvider = {
+      async chat(_params) {
+        throw new Error("Provider exploded");
+      },
+      getDefaultModel() { return "fake"; },
+    };
+    const inbound = [makeInboundMsg("Hello")];
+    const { bus, published, stop: busStop } = makeFakeBus(inbound);
+    const loop = new AgentLoop(bus, provider, config);
+
+    const runPromise = loop.run();
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        if (published.length > 0) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 10);
+    });
+    loop.stop();
+    busStop();
+    await runPromise;
+
+    assertEquals(published.length, 1);
+    assertStringIncludes(published[0].content, "unexpected error");
+    await loop.closeMcp();
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("AgentLoop - processMessage error boundary does not affect subsequent messages", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
+    let callCount = 0;
+    const provider: LLMProvider = {
+      async chat(_params) {
+        callCount++;
+        if (callCount === 1) {
+          throw new Error("First call fails");
+        }
+        return { content: "Second call succeeds", toolCalls: [], finishReason: "stop", usage: {} };
+      },
+      getDefaultModel() { return "fake"; },
+    };
+    const inbound = [makeInboundMsg("First"), makeInboundMsg("Second")];
+    const { bus, published, stop: busStop } = makeFakeBus(inbound);
+    const loop = new AgentLoop(bus, provider, config);
+
+    const runPromise = loop.run();
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        if (published.length >= 2) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 10);
+    });
+    loop.stop();
+    busStop();
+    await runPromise;
+
+    assertEquals(published.length, 2);
+    assertStringIncludes(published[0].content, "unexpected error");
+    assertEquals(published[1].content, "Second call succeeds");
+    await loop.closeMcp();
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2: Token budget tracking
+// ---------------------------------------------------------------------------
+
+Deno.test("AgentLoop - runAgentLoop accumulates token usage across iterations", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
+    let callCount = 0;
+    const provider: LLMProvider = {
+      async chat(_params) {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            content: null,
+            toolCalls: [{ id: "tc1", name: "list_dir", arguments: { path: "." } }],
+            finishReason: "tool_calls",
+            usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+          };
+        }
+        return {
+          content: "Done",
+          toolCalls: [],
+          finishReason: "stop",
+          usage: { promptTokens: 200, completionTokens: 80, totalTokens: 280 },
+        };
+      },
+      getDefaultModel() { return "fake"; },
+    };
+    const { bus } = makeFakeBus();
+    const loop = new AgentLoop(bus, provider, config);
+
+    const result = await loop.processDirect("slack", "chat1", "List files");
+    assertEquals(result, "Done");
+    await loop.closeMcp();
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("AgentLoop - runAgentLoop stops when token budget exceeded", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({
+      data_dir: tmpDir,
+      workspace: tmpDir,
+      agents: {
+        models: { heartbeat: "openrouter/free" },
+        temperature: 0.7,
+        max_tokens: 1000,
+        memory_window: 10,
+        consolidation_threshold: 50,
+        max_iterations: 10,
+        token_budget: 1000,
+      },
+    });
+    let callCount = 0;
+    const provider: LLMProvider = {
+      async chat(_params) {
+        callCount++;
+        return {
+          content: `iteration-${callCount}`,
+          toolCalls: [{ id: `tc${callCount}`, name: "list_dir", arguments: { path: "." } }],
+          finishReason: "tool_calls",
+          usage: { promptTokens: 400, completionTokens: 200, totalTokens: 600 },
+        };
+      },
+      getDefaultModel() { return "fake"; },
+    };
+    const { bus } = makeFakeBus();
+    const loop = new AgentLoop(bus, provider, config);
+
+    const result = await loop.processDirect("slack", "chat1", "Do work");
+    // First iteration: 600 tokens (under 1000) -> executes tools, loops
+    // Second iteration: budget check 600 >= 1000? No -> calls LLM, now 1200 tokens
+    // Third iteration: budget check 1200 >= 1000? Yes -> breaks out
+    assertEquals(callCount, 2);
+    assertStringIncludes(result, "iteration-2");
+    await loop.closeMcp();
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("AgentLoop - runAgentLoop works without token budget (backward compat)", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    // No token_budget in config
+    const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
+    const provider = makeFakeProvider([
+      { content: "Works fine", toolCalls: [], finishReason: "stop", usage: { promptTokens: 500, completionTokens: 200, totalTokens: 700 } },
+    ]);
+    const { bus } = makeFakeBus();
+    const loop = new AgentLoop(bus, provider, config);
+
+    const result = await loop.processDirect("slack", "chat1", "Hello");
+    assertEquals(result, "Works fine");
+    await loop.closeMcp();
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2: Parallel tool execution in agent loop
+// ---------------------------------------------------------------------------
+
+Deno.test("AgentLoop - parallel tool execution returns correct results for multiple tools", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({ data_dir: tmpDir, workspace: tmpDir });
+    let secondCallMessages: Array<Record<string, unknown>> = [];
+    let callCount = 0;
+    const provider: LLMProvider = {
+      async chat(params) {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            content: null,
+            toolCalls: [
+              { id: "tc1", name: "list_dir", arguments: { path: "." } },
+              { id: "tc2", name: "list_dir", arguments: { path: ".." } },
+            ],
+            finishReason: "tool_calls",
+            usage: {},
+          };
+        }
+        secondCallMessages = params.messages as Array<Record<string, unknown>>;
+        return { content: "Both done", toolCalls: [], finishReason: "stop", usage: {} };
+      },
+      getDefaultModel() { return "fake"; },
+    };
+    const { bus } = makeFakeBus();
+    const loop = new AgentLoop(bus, provider, config);
+
+    const result = await loop.processDirect("slack", "chat1", "List two dirs");
+    assertEquals(result, "Both done");
+
+    // Verify both tool results were included in the second call
+    const toolResults = secondCallMessages.filter((m) => m.role === "tool");
+    assertEquals(toolResults.length, 2);
+    assertEquals(toolResults[0].tool_call_id, "tc1");
+    assertEquals(toolResults[1].tool_call_id, "tc2");
     await loop.closeMcp();
   } finally {
     await Deno.remove(tmpDir, { recursive: true });

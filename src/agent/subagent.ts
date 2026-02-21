@@ -90,6 +90,7 @@ export class SubagentManager {
       ];
 
       let finalResult: string | null = null;
+      const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, iterations: 0 };
 
       for (let i = 0; i < MAX_ITERATIONS; i++) {
         const response = await this.provider.chat({
@@ -99,6 +100,12 @@ export class SubagentManager {
           maxTokens: this.maxTokens,
           temperature: this.temperature,
         });
+
+        // Accumulate token usage
+        usage.promptTokens += response.usage.promptTokens ?? 0;
+        usage.completionTokens += response.usage.completionTokens ?? 0;
+        usage.totalTokens += response.usage.totalTokens ?? 0;
+        usage.iterations = i + 1;
 
         if (response.toolCalls.length > 0) {
           const toolCallDicts = response.toolCalls.map((tc) => ({
@@ -115,13 +122,16 @@ export class SubagentManager {
             tool_calls: toolCallDicts,
           });
 
-          for (const tc of response.toolCalls) {
-            const result = await tools.execute(tc.name, tc.arguments);
+          // Execute tool calls in parallel
+          const toolResults = await tools.executeParallel(
+            response.toolCalls.map((tc) => ({ name: tc.name, args: tc.arguments })),
+          );
+          for (let j = 0; j < response.toolCalls.length; j++) {
             messages.push({
               role: "tool",
-              tool_call_id: tc.id,
-              name: tc.name,
-              content: result,
+              tool_call_id: response.toolCalls[j].id,
+              name: toolResults[j].name,
+              content: toolResults[j].result,
             });
           }
         } else {
@@ -132,6 +142,10 @@ export class SubagentManager {
 
       if (finalResult === null) {
         finalResult = "Task completed but no final response was generated.";
+      }
+
+      if (usage.totalTokens > 0) {
+        console.log(`Subagent usage: ${usage.totalTokens} tokens (${usage.iterations} iterations)`);
       }
 
       await this.announceResult(taskId, label, task, finalResult, origin, "ok");

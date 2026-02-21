@@ -26,6 +26,16 @@ import { ContextBuilder } from "./context.ts";
 import type { Config } from "../config/schema.ts";
 import { resolveModel } from "../config/models.ts";
 
+interface AgentLoopResult {
+  content: string;
+  usage: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    iterations: number;
+  };
+}
+
 export class AgentLoop {
   private bus: MessageBus;
   private provider: LLMProvider;
@@ -200,46 +210,35 @@ export class AgentLoop {
     // Record user message in session
     session.addMessage("user", msg.content);
 
-    // Build context
-    const context = new ContextBuilder(
-      this.config.workspace,
-      this.memory,
-      this.skills,
-    );
-    const history = session.getHistory(this.config.agents.memory_window);
-    // Remove the last message from history since we'll add it as the current message
-    const pastHistory = history.slice(0, -1);
-    const messages = await context.buildMessages(
-      pastHistory,
-      msg.content,
-      msg.media,
-    );
+    let response: string;
+    try {
+      // Build context
+      const context = new ContextBuilder(
+        this.config.workspace,
+        this.memory,
+        this.skills,
+      );
+      const history = session.getHistory(this.config.agents.memory_window);
+      // Remove the last message from history since we'll add it as the current message
+      const pastHistory = history.slice(0, -1);
+      const messages = await context.buildMessages(
+        pastHistory,
+        msg.content,
+        msg.media,
+      );
 
-    // Run agent iteration loop
-    const response = await this.runAgentLoop(context, messages);
+      // Run agent iteration loop
+      const result = await this.runAgentLoop(context, messages);
+      response = result.content;
+    } catch (err) {
+      console.error("Error in agent processing:", err);
+      response = "Sorry, I encountered an unexpected error processing your request.";
+    }
 
-    // Record assistant response
+    // Record assistant response and publish FIRST (before housekeeping)
     session.addMessage("assistant", response);
     this.sessions.save(session);
 
-    // Legacy history log (daily notes populated by Tier 1 extraction instead)
-    const source = `${msg.channel}:${msg.chatId}`;
-    const truncatedResponse = response.length > 200
-      ? response.slice(0, 200) + "..."
-      : response;
-    await this.memory.appendHistory(`[${source}] User: ${msg.content}`);
-    await this.memory.appendHistory(
-      `[${source}] Assistant: ${truncatedResponse}`,
-    );
-
-    // Check if extraction to daily note is needed (Tier 1 consolidation)
-    const messageCount = session.messages.length;
-    const sinceConsolidation = messageCount - session.lastConsolidated;
-    if (sinceConsolidation >= this.config.agents.consolidation_threshold) {
-      await this.extractToDaily(session, sessionKey, source);
-    }
-
-    // Publish response
     await this.bus.publishOutbound({
       channel: msg.channel,
       chatId: msg.chatId,
@@ -247,6 +246,27 @@ export class AgentLoop {
       media: [],
       metadata: msg.metadata,
     });
+
+    // Housekeeping AFTER response delivery
+    try {
+      const source = `${msg.channel}:${msg.chatId}`;
+      const truncatedResponse = response.length > 200
+        ? response.slice(0, 200) + "..."
+        : response;
+      await this.memory.appendHistory(`[${source}] User: ${msg.content}`);
+      await this.memory.appendHistory(
+        `[${source}] Assistant: ${truncatedResponse}`,
+      );
+
+      // Check if extraction to daily note is needed (Tier 1 consolidation)
+      const messageCount = session.messages.length;
+      const sinceConsolidation = messageCount - session.lastConsolidated;
+      if (sinceConsolidation >= this.config.agents.consolidation_threshold) {
+        await this.extractToDaily(session, sessionKey, source);
+      }
+    } catch (err) {
+      console.error("Housekeeping error (response already delivered):", err);
+    }
   }
 
   private async processSystemMessage(msg: InboundMessage): Promise<void> {
@@ -266,15 +286,22 @@ export class AgentLoop {
     const session = this.sessions.getOrCreate(sessionKey);
     this.setToolContext(originChannel, originChatId);
 
-    const context = new ContextBuilder(
-      this.config.workspace,
-      this.memory,
-      this.skills,
-    );
-    const history = session.getHistory(this.config.agents.memory_window);
-    const messages = await context.buildMessages(history, msg.content, []);
+    let response: string;
+    try {
+      const context = new ContextBuilder(
+        this.config.workspace,
+        this.memory,
+        this.skills,
+      );
+      const history = session.getHistory(this.config.agents.memory_window);
+      const messages = await context.buildMessages(history, msg.content, []);
 
-    const response = await this.runAgentLoop(context, messages);
+      const result = await this.runAgentLoop(context, messages);
+      response = result.content;
+    } catch (err) {
+      console.error("Error in system message processing:", err);
+      response = "Sorry, I encountered an unexpected error processing this request.";
+    }
 
     session.addMessage("user", `[System: ${msg.senderId}] ${msg.content}`);
     session.addMessage("assistant", response);
@@ -300,11 +327,19 @@ export class AgentLoop {
         name?: string;
       }
     >,
-  ): Promise<string> {
+  ): Promise<AgentLoopResult> {
     const maxIterations = this.config.agents.max_iterations;
+    const tokenBudget = this.config.agents.token_budget;
     let lastContent = "";
+    const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, iterations: 0 };
 
     for (let i = 0; i < maxIterations; i++) {
+      // Budget check before next LLM call (skip on first iteration)
+      if (tokenBudget && usage.totalTokens >= tokenBudget) {
+        console.log(`Token budget exhausted: ${usage.totalTokens}/${tokenBudget}`);
+        break;
+      }
+
       const response = await this.provider.chat({
         messages,
         tools: this.tools.getDefinitions(),
@@ -313,9 +348,18 @@ export class AgentLoop {
         temperature: this.config.agents.temperature,
       });
 
+      // Accumulate token usage
+      usage.promptTokens += response.usage.promptTokens ?? 0;
+      usage.completionTokens += response.usage.completionTokens ?? 0;
+      usage.totalTokens += response.usage.totalTokens ?? 0;
+      usage.iterations = i + 1;
+
       if (response.finishReason === "error") {
-        return response.content ??
-          "Sorry, I encountered an error processing your request.";
+        return {
+          content: response.content ??
+            "Sorry, I encountered an error processing your request.",
+          usage,
+        };
       }
 
       if (response.content) {
@@ -324,7 +368,7 @@ export class AgentLoop {
 
       // No tool calls — we're done
       if (response.toolCalls.length === 0) {
-        return lastContent || "I'm not sure how to respond to that.";
+        return { content: lastContent || "I'm not sure how to respond to that.", usage };
       }
 
       // Add assistant message with tool calls
@@ -338,23 +382,31 @@ export class AgentLoop {
         console.log(`Reasoning: ${response.reasoning_content.slice(0, 200)}`);
       }
 
-      // Execute each tool call
+      // Execute tool calls in parallel
       for (const tc of response.toolCalls) {
         console.log(
           `Tool call: ${tc.name}(${
             JSON.stringify(tc.arguments).slice(0, 100)
           })`,
         );
-        const result = await this.tools.execute(tc.name, tc.arguments);
-        context.addToolResult(tc.id, tc.name, result);
+      }
+      const toolResults = await this.tools.executeParallel(
+        response.toolCalls.map((tc) => ({ name: tc.name, args: tc.arguments })),
+      );
+      for (let j = 0; j < response.toolCalls.length; j++) {
+        context.addToolResult(response.toolCalls[j].id, toolResults[j].name, toolResults[j].result);
       }
 
       // Update messages for next iteration
       messages = context.getMessages();
     }
 
-    return lastContent ||
+    const content = lastContent ||
       "I reached the maximum number of iterations. Here's what I have so far.";
+    if (usage.totalTokens > 0) {
+      console.log(`Turn usage: ${usage.totalTokens} tokens (${usage.iterations} iterations)`);
+    }
+    return { content, usage };
   }
 
   /**
@@ -495,6 +547,7 @@ Output ONLY the memory content, no explanation.`;
       this.skills,
     );
     const messages = await context.buildMessages([], content, []);
-    return await this.runAgentLoop(context, messages);
+    const result = await this.runAgentLoop(context, messages);
+    return result.content;
   }
 }

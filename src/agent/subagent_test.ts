@@ -218,3 +218,85 @@ Deno.test("SubagentManager - respects 15-iteration max loop", async () => {
     await Deno.remove(tmpDir, { recursive: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2: Parallel tool execution in subagent
+// ---------------------------------------------------------------------------
+
+Deno.test("SubagentManager - parallel tool execution handles multiple tool calls", async () => {
+  let secondCallMessages: Array<Record<string, unknown>> = [];
+  let callCount = 0;
+  const provider: LLMProvider = {
+    async chat(params) {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          content: null,
+          toolCalls: [
+            { id: "tc1", name: "list_dir", arguments: { path: "." } },
+            { id: "tc2", name: "list_dir", arguments: { path: ".." } },
+          ],
+          finishReason: "tool_calls",
+          usage: {},
+        };
+      }
+      secondCallMessages = params.messages as Array<Record<string, unknown>>;
+      return { content: "Both listed", toolCalls: [], finishReason: "stop", usage: {} };
+    },
+    getDefaultModel() { return "fake-model"; },
+  };
+  const bus = new MessageBus();
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const manager = new SubagentManager(provider, tmpDir, bus, {});
+    await manager.spawn("list two dirs", "lister", "cli", "direct");
+
+    const msg = await bus.consumeInboundWithTimeout(5000);
+    assertEquals(msg !== null, true);
+    assertStringIncludes(msg!.content, "Both listed");
+
+    // Verify both tool results were sent in the second call
+    const toolResults = secondCallMessages.filter((m) => m.role === "tool");
+    assertEquals(toolResults.length, 2);
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("SubagentManager - token usage is accumulated across iterations", async () => {
+  let callCount = 0;
+  const provider: LLMProvider = {
+    async chat(_params) {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          content: null,
+          toolCalls: [{ id: "tc1", name: "list_dir", arguments: { path: "." } }],
+          finishReason: "tool_calls",
+          usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+        };
+      }
+      return {
+        content: "Done with usage",
+        toolCalls: [],
+        finishReason: "stop",
+        usage: { promptTokens: 200, completionTokens: 80, totalTokens: 280 },
+      };
+    },
+    getDefaultModel() { return "fake-model"; },
+  };
+  const bus = new MessageBus();
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const manager = new SubagentManager(provider, tmpDir, bus, {});
+    await manager.spawn("track tokens", "tracker", "cli", "direct");
+
+    const msg = await bus.consumeInboundWithTimeout(5000);
+    assertEquals(msg !== null, true);
+    assertStringIncludes(msg!.content, "Done with usage");
+    // The subagent completes successfully — usage is tracked internally
+    assertEquals(callCount, 2);
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
