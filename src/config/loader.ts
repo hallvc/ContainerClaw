@@ -108,6 +108,14 @@ export function buildRawConfig(
         interval_seconds: parseOptionalInt(env.CONTAINERCLAW_HEARTBEAT_INTERVAL),
       }),
     },
+    cron: {
+      ...((fileConfig.cron as Record<string, unknown>) ?? {}),
+      ...defined({
+        enabled: parseOptionalBool(env.CONTAINERCLAW_CRON_ENABLED),
+        tick_interval_ms: parseOptionalInt(env.CONTAINERCLAW_CRON_TICK_INTERVAL_MS),
+        job_timeout_ms: parseOptionalInt(env.CONTAINERCLAW_CRON_JOB_TIMEOUT_MS),
+      }),
+    },
   };
 }
 
@@ -170,6 +178,9 @@ export async function loadConfig(configPath?: string): Promise<Config> {
     AGENTMAIL_POLICY: Deno.env.get("AGENTMAIL_POLICY"),
     CONTAINERCLAW_HEARTBEAT_ENABLED: Deno.env.get("CONTAINERCLAW_HEARTBEAT_ENABLED"),
     CONTAINERCLAW_HEARTBEAT_INTERVAL: Deno.env.get("CONTAINERCLAW_HEARTBEAT_INTERVAL"),
+    CONTAINERCLAW_CRON_ENABLED: Deno.env.get("CONTAINERCLAW_CRON_ENABLED"),
+    CONTAINERCLAW_CRON_TICK_INTERVAL_MS: Deno.env.get("CONTAINERCLAW_CRON_TICK_INTERVAL_MS"),
+    CONTAINERCLAW_CRON_JOB_TIMEOUT_MS: Deno.env.get("CONTAINERCLAW_CRON_JOB_TIMEOUT_MS"),
   };
   const raw = buildRawConfig(env, fileConfig);
   const clean = JSON.parse(JSON.stringify(raw));

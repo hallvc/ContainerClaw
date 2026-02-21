@@ -58,7 +58,10 @@ export async function runAgent(options: AgentOptions = {}): Promise<void> {
     config.openrouter.api_key,
     config.openrouter.default_model,
   );
-  const cron = new CronService(config.data_dir);
+  const cron = new CronService(config.data_dir, {
+    tickIntervalMs: config.cron.tick_interval_ms,
+    jobTimeoutMs: config.cron.job_timeout_ms,
+  });
   const agent = new AgentLoop(bus, provider, config, cron);
 
   const sessionKey = options.session ?? "cli:repl";

@@ -2,6 +2,7 @@ import { assertEquals, assertThrows } from "@std/assert";
 import {
   AgentsConfigSchema,
   ConfigSchema,
+  CronConfigSchema,
   OpenRouterConfigSchema,
   RESTRICT_TO_WORKSPACE,
   SlackConfigSchema,
@@ -86,4 +87,18 @@ Deno.test("ConfigSchema - tools defaults", () => {
 Deno.test("ConfigSchema - custom tools exec_timeout_ms", () => {
   const config = ConfigSchema.parse({ tools: { exec_timeout_ms: 120_000 } });
   assertEquals(config.tools.exec_timeout_ms, 120_000);
+});
+
+Deno.test("CronConfigSchema - defaults", () => {
+  const cron = CronConfigSchema.parse({});
+  assertEquals(cron.enabled, true);
+  assertEquals(cron.tick_interval_ms, 30_000);
+  assertEquals(cron.job_timeout_ms, 300_000);
+});
+
+Deno.test("ConfigSchema - cron defaults", () => {
+  const config = ConfigSchema.parse({});
+  assertEquals(config.cron.enabled, true);
+  assertEquals(config.cron.tick_interval_ms, 30_000);
+  assertEquals(config.cron.job_timeout_ms, 300_000);
 });

@@ -61,6 +61,12 @@ export const HeartbeatConfigSchema = z.object({
   interval_seconds: z.number().int().positive().default(60),
 });
 
+export const CronConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  tick_interval_ms: z.number().int().positive().default(30_000),
+  job_timeout_ms: z.number().int().positive().default(300_000),
+});
+
 export const ConfigSchema = z.object({
   slack: SlackConfigSchema.default({}),
   email: EmailConfigSchema.default({}),
@@ -69,6 +75,7 @@ export const ConfigSchema = z.object({
   agents: AgentsConfigSchema.default({}),
   tools: ToolsConfigSchema.default({}),
   heartbeat: HeartbeatConfigSchema.default({}),
+  cron: CronConfigSchema.default({}),
   workspace: z.string().default("/workspace"),
   data_dir: z.string().default("/data"),
 });
@@ -81,6 +88,7 @@ export type OpenRouterConfig = z.infer<typeof OpenRouterConfigSchema>;
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
 export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
 export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;
+export type CronConfig = z.infer<typeof CronConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 
 /** Workspace confinement is always enforced — not configurable. */
