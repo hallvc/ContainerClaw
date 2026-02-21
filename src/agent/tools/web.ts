@@ -25,7 +25,7 @@ export class WebFetchTool implements Tool {
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       throw new Error(`URL scheme must be http or https, got "${parsed.protocol}"`);
     }
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     if (!response.ok) {
       throw new Error(`Fetch error: ${response.status} ${response.statusText}`);
     }

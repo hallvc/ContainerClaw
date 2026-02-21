@@ -176,11 +176,22 @@ export async function runGateway(): Promise<void> {
     Deno.exit(0);
   };
 
+  let shuttingDown = false;
   Deno.addSignalListener("SIGINT", () => {
-    shutdown();
+    if (shuttingDown) return;
+    shuttingDown = true;
+    shutdown().catch((err) => {
+      console.error("Shutdown error:", err);
+      Deno.exit(1);
+    });
   });
   Deno.addSignalListener("SIGTERM", () => {
-    shutdown();
+    if (shuttingDown) return;
+    shuttingDown = true;
+    shutdown().catch((err) => {
+      console.error("Shutdown error:", err);
+      Deno.exit(1);
+    });
   });
 
   console.log(`Model (chat): ${resolveModel(config, "chat")}`);

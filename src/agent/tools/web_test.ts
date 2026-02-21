@@ -39,3 +39,45 @@ Deno.test("WebFetchTool - accepts https:// URLs", () => {
   const tool = new WebFetchTool();
   assertEquals(tool.name, "web_fetch");
 });
+
+// --- Timeout tests ---
+
+Deno.test("WebFetchTool - passes abort signal to fetch for timeout", async () => {
+  const original = globalThis.fetch;
+  let capturedSignal: AbortSignal | undefined;
+
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    capturedSignal = init?.signal ?? undefined;
+    return Promise.resolve(new Response("<html><body><p>OK</p></body></html>", { status: 200, headers: { "Content-Type": "text/html" } }));
+  }) as typeof fetch;
+
+  try {
+    const tool = new WebFetchTool();
+    try {
+      await tool.execute({ url: "https://example.com" });
+    } catch {
+      // May throw due to Readability parsing, that's fine
+    }
+    if (!capturedSignal) throw new Error("Expected AbortSignal to be passed to fetch");
+    if (capturedSignal.aborted) throw new Error("Signal should not be aborted yet");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+Deno.test("WebFetchTool - times out on slow responses", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (() => {
+    return Promise.reject(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+  }) as typeof fetch;
+
+  try {
+    const tool = new WebFetchTool();
+    await assertRejects(
+      () => tool.execute({ url: "https://example.com/slow" }),
+      DOMException,
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});

@@ -63,6 +63,24 @@ function stubFetchThrow(
   return { restore: () => { globalThis.fetch = original; } };
 }
 
+/**
+ * Stub globalThis.fetch with a factory function called on each invocation.
+ * Useful for testing retry behavior where successive calls return different results.
+ * Access `tracker.calls` after the test to read the final call count.
+ */
+function stubFetchSequence(
+  factory: (callIndex: number) => Promise<Response>,
+): { tracker: { calls: number }; restore: () => void } {
+  const original = globalThis.fetch;
+  const tracker = { calls: 0 };
+
+  globalThis.fetch = (_input: string | URL | Request, _init?: RequestInit): Promise<Response> => {
+    return factory(tracker.calls++);
+  };
+
+  return { tracker, restore: () => { globalThis.fetch = original; } };
+}
+
 // ---------------------------------------------------------------------------
 // 1. Constructor & getDefaultModel
 // ---------------------------------------------------------------------------
@@ -517,6 +535,268 @@ Deno.test("OpenRouterProvider - chat repairs malformed tool arguments", async ()
     assertEquals(result.toolCalls[0].id, "call_repair");
     assertEquals(result.toolCalls[0].name, "some_tool");
     assertEquals(result.toolCalls[0].arguments, { key: "value", num: 42 });
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Fix 3: Empty choices guard
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat returns error when choices array is empty", async () => {
+  const stub = stubFetch(JSON.stringify({ choices: [] }));
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.finishReason, "error");
+    assertEquals(result.content, "Empty response from model (no choices returned)");
+    assertEquals(result.toolCalls, []);
+    assertEquals(result.usage, {});
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("OpenRouterProvider - chat returns error when choices field is missing", async () => {
+  // Cast as unknown to bypass TS type checking for this test
+  const stub = stubFetch(JSON.stringify({}));
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.finishReason, "error");
+    assertEquals(result.content, "Empty response from model (no choices returned)");
+    assertEquals(result.toolCalls, []);
+    assertEquals(result.usage, {});
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Fix 5: Tool argument parse logging
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - parseToolArguments warns when both parse attempts fail", async () => {
+  const warnMessages: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnMessages.push(args.map(String).join(" "));
+  };
+
+  const stub = stubFetch(makeResponseBody({
+    content: null,
+    finish_reason: "tool_calls",
+    tool_calls: [
+      {
+        id: "call_unparseable",
+        function: {
+          name: "some_tool",
+          // Use a bare word that JSON.parse fails on and jsonrepair wraps as a
+          // string (not an object), causing the second JSON.parse to succeed
+          // but Object.keys() would pass — so use something that makes both fail:
+          // jsonrepair of "not valid json {{{{" returns "{}" which parses as {}
+          // but we need it to throw. Use raw binary-like content that
+          // jsonrepair cannot produce valid JSON from.
+          arguments: "not valid json {{{",
+        },
+      },
+    ],
+  }));
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    const warnCalled = warnMessages.some((msg) =>
+      msg.startsWith("Failed to parse tool arguments:")
+    );
+    assertEquals(warnCalled, true);
+  } finally {
+    stub.restore();
+    console.warn = originalWarn;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Fix 2: Request timeout
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat returns error on TimeoutError and does not retry", async () => {
+  let fetchCallCount = 0;
+  const original = globalThis.fetch;
+  globalThis.fetch = (): Promise<Response> => {
+    fetchCallCount++;
+    return Promise.reject(new DOMException("The signal has been aborted", "TimeoutError"));
+  };
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    // TimeoutError should NOT be retried - only 1 fetch call
+    assertEquals(fetchCallCount, 1);
+    assertEquals(result.finishReason, "error");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Fix 1: Retry with exponential backoff
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - chat retries on fetch exception and succeeds on second attempt", async () => {
+  let callIndex = 0;
+  const successBody = makeResponseBody({ content: "Recovered!", finish_reason: "stop" });
+  const stub = stubFetchSequence((idx) => {
+    callIndex = idx;
+    if (idx === 0) {
+      return Promise.reject(new TypeError("Network error"));
+    }
+    return Promise.resolve(
+      new Response(successBody, {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  });
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(stub.tracker.calls, 2);
+    assertEquals(result.content, "Recovered!");
+    assertEquals(result.finishReason, "stop");
+  } finally {
+    stub.restore();
+    void callIndex; // suppress unused warning
+  }
+});
+
+Deno.test("OpenRouterProvider - chat retries on 429 and succeeds on second attempt", async () => {
+  const successBody = makeResponseBody({ content: "OK after rate limit", finish_reason: "stop" });
+  const rateLimitBody = JSON.stringify({ error: { message: "Rate limit exceeded" } });
+  const stub = stubFetchSequence((idx) => {
+    if (idx === 0) {
+      return Promise.resolve(
+        new Response(rateLimitBody, {
+          status: 429,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
+    return Promise.resolve(
+      new Response(successBody, {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  });
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(stub.tracker.calls, 2);
+    assertEquals(result.content, "OK after rate limit");
+    assertEquals(result.finishReason, "stop");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("OpenRouterProvider - chat retries on 500 and succeeds on second attempt", async () => {
+  const successBody = makeResponseBody({ content: "OK after server error", finish_reason: "stop" });
+  const stub = stubFetchSequence((idx) => {
+    if (idx === 0) {
+      return Promise.resolve(
+        new Response(JSON.stringify({}), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
+    return Promise.resolve(
+      new Response(successBody, {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  });
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(stub.tracker.calls, 2);
+    assertEquals(result.content, "OK after server error");
+    assertEquals(result.finishReason, "stop");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("OpenRouterProvider - chat does NOT retry on 400 response", async () => {
+  const errorBody = JSON.stringify({ error: { message: "Bad request" } });
+  const stub = stubFetchSequence((_idx) => {
+    return Promise.resolve(
+      new Response(errorBody, {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  });
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    // Only 1 fetch call - no retry on 4xx (except 429)
+    assertEquals(stub.tracker.calls, 1);
+    assertEquals(result.finishReason, "error");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("OpenRouterProvider - chat gives up after max retries and returns error", async () => {
+  const stub = stubFetchSequence((_idx) => {
+    return Promise.reject(new TypeError("Persistent network failure"));
+  });
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    // 3 max attempts
+    assertEquals(stub.tracker.calls, 3);
+    assertEquals(result.finishReason, "error");
+    assertEquals(result.toolCalls, []);
+    assertEquals(result.usage, {});
   } finally {
     stub.restore();
   }
