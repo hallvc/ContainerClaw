@@ -300,3 +300,113 @@ Deno.test("SubagentManager - token usage is accumulated across iterations", asyn
     await Deno.remove(tmpDir, { recursive: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Phase 6: Concurrency limit
+// ---------------------------------------------------------------------------
+
+Deno.test("SubagentManager - spawn rejects when concurrency limit reached", async () => {
+  // Provider that blocks indefinitely so tasks stay alive
+  let unblockAll: () => void;
+  const blocker = new Promise<void>((resolve) => { unblockAll = resolve; });
+  const provider: LLMProvider = {
+    async chat(_params) {
+      await blocker;
+      return { content: "done", toolCalls: [], finishReason: "stop", usage: {} };
+    },
+    getDefaultModel() { return "fake-model"; },
+  };
+  const bus = new MessageBus();
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const manager = new SubagentManager(provider, tmpDir, bus, {});
+
+    // Spawn up to the default limit (3)
+    manager.spawn("task 1");
+    manager.spawn("task 2");
+    manager.spawn("task 3");
+    // Give tasks a tick to register
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // 4th spawn should be rejected
+    const result = manager.spawn("task 4");
+    const lower = result.toLowerCase();
+    const hasLimit = lower.includes("limit") || lower.includes("concurrent");
+    assertEquals(hasLimit, true, `Expected rejection message, got: ${result}`);
+
+    unblockAll!();
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("SubagentManager - concurrency limit configurable via SubagentConfig", async () => {
+  let unblockAll: () => void;
+  const blocker = new Promise<void>((resolve) => { unblockAll = resolve; });
+  const provider: LLMProvider = {
+    async chat(_params) {
+      await blocker;
+      return { content: "done", toolCalls: [], finishReason: "stop", usage: {} };
+    },
+    getDefaultModel() { return "fake-model"; },
+  };
+  const bus = new MessageBus();
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    // Set a custom limit of 1
+    const manager = new SubagentManager(provider, tmpDir, bus, { maxConcurrent: 1 });
+
+    manager.spawn("task 1");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // 2nd spawn should be rejected with limit of 1
+    const result = manager.spawn("task 2");
+    const lower = result.toLowerCase();
+    const hasLimit = lower.includes("limit") || lower.includes("concurrent");
+    assertEquals(hasLimit, true, `Expected rejection message, got: ${result}`);
+
+    unblockAll!();
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("SubagentManager - spawn succeeds again after a task completes", async () => {
+  let resolveFirst: () => void;
+  let firstResolved = false;
+  const provider: LLMProvider = {
+    async chat(_params) {
+      if (!firstResolved) {
+        await new Promise<void>((resolve) => { resolveFirst = resolve; });
+        firstResolved = true;
+      }
+      return { content: "done", toolCalls: [], finishReason: "stop", usage: {} };
+    },
+    getDefaultModel() { return "fake-model"; },
+  };
+  const bus = new MessageBus();
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    // Set limit of 1 for simplicity
+    const manager = new SubagentManager(provider, tmpDir, bus, { maxConcurrent: 1 });
+
+    manager.spawn("task 1");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // At limit — 2nd spawn should be rejected
+    const rejected = manager.spawn("task 2");
+    const lower = rejected.toLowerCase();
+    assertEquals(lower.includes("limit") || lower.includes("concurrent"), true);
+
+    // Let task 1 finish
+    resolveFirst!();
+    await bus.consumeInboundWithTimeout(2000);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Now spawn should succeed
+    const result = manager.spawn("task 3");
+    assertStringIncludes(result, "started");
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});

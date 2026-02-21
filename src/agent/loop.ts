@@ -2,7 +2,7 @@ import type { MessageBus } from "../bus/queue.ts";
 import type { InboundMessage } from "../bus/events.ts";
 import { getSessionKey } from "../bus/events.ts";
 import type { LLMProvider } from "../providers/base.ts";
-import { ToolRegistry } from "./tools/base.ts";
+import { isContextAware, ToolRegistry } from "./tools/base.ts";
 import {
   EditFileTool,
   ListDirTool,
@@ -114,17 +114,11 @@ export class AgentLoop {
   }
 
   private setToolContext(channel: string, chatId: string): void {
-    const msgTool = this.tools.get("message");
-    if (msgTool && "setContext" in msgTool) {
-      (msgTool as MessageTool).setContext(channel, chatId);
-    }
-    const cronTool = this.tools.get("cron");
-    if (cronTool && "setContext" in cronTool) {
-      (cronTool as CronTool).setContext(channel, chatId);
-    }
-    const spawnTool = this.tools.get("spawn");
-    if (spawnTool && "setContext" in spawnTool) {
-      (spawnTool as SpawnTool).setContext(channel, chatId);
+    for (const name of ["message", "cron", "spawn"]) {
+      const tool = this.tools.get(name);
+      if (tool && isContextAware(tool)) {
+        tool.setContext(channel, chatId);
+      }
     }
   }
 

@@ -72,11 +72,14 @@ The `exec` tool can execute shell commands. While dangerous command patterns are
 - ❌ Don't run on systems with sensitive data without careful review
 
 **Blocked patterns:**
-- `rm -rf /` - Root filesystem deletion
-- Fork bombs
-- Filesystem formatting (`mkfs.*`)
-- Raw disk writes
-- Other destructive operations
+- `rm -rf`, `rm -r`, `rm -f`, `rm -fr` - Recursive/force file deletion
+- `del /f`, `del /q` - Windows file deletion
+- `rmdir /s` - Windows directory deletion
+- `format`, `mkfs`, `diskpart` - Disk formatting commands
+- `dd if=...` - Raw disk read/write operations
+- `> /dev/sd*` - Redirects to raw disk devices
+- `shutdown`, `reboot`, `poweroff` - System power operations
+- `:(){ :|:& };:` - Fork bombs
 
 ### 4. File System Access
 
@@ -93,6 +96,10 @@ File operations have path traversal protection, but:
 - All external API calls use HTTPS by default
 - Timeouts are configured to prevent hanging requests
 - Consider using a firewall to restrict outbound connections if needed
+
+**SSRF Protection:**
+- The `web_fetch` tool blocks requests to private/internal IP addresses to prevent Server-Side Request Forgery (SSRF) attacks
+- Blocked address ranges: `127.0.0.1`, `10.x.x.x`, `172.16-31.x.x`, `192.168.x.x`, `169.254.x.x` (link-local), `localhost`, `::1` (IPv6 loopback)
 
 **WhatsApp Bridge:**
 - The bridge binds to `127.0.0.1:3001` (localhost only, not accessible from external network)
@@ -218,6 +225,11 @@ If you suspect a security breach:
 - Command execution timeouts (60s default)
 - Output truncation (10KB limit)
 - HTTP request timeouts (10-30s)
+- Subagent concurrency limits to prevent resource exhaustion
+
+✅ **SSRF Protection**
+- `web_fetch` tool blocks requests to private/internal IP ranges
+- Prevents agents from making requests to localhost, RFC-1918 addresses, and link-local addresses
 
 ✅ **Secure Communication**
 - HTTPS for all external API calls
@@ -231,8 +243,7 @@ If you suspect a security breach:
 1. **No Rate Limiting** - Users can send unlimited messages (add your own if needed)
 2. **Plain Text Config** - API keys stored in plain text (use keyring for production)
 3. **No Session Management** - No automatic session expiry
-4. **Limited Command Filtering** - Only blocks obvious dangerous patterns
-5. **No Audit Trail** - Limited security event logging (enhance as needed)
+4. **No Audit Trail** - Limited security event logging (enhance as needed)
 
 ## Security Checklist
 
@@ -251,7 +262,7 @@ Before deploying containerclaw:
 
 ## Updates
 
-**Last Updated**: 2026-02-03
+**Last Updated**: 2026-02-21
 
 For the latest security updates and announcements, check:
 - GitHub Security Advisories: https://github.com/HKUDS/nanobot/security/advisories

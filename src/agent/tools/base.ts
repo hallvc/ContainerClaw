@@ -9,6 +9,17 @@ export interface Tool {
   execute(args: Record<string, unknown>): Promise<string>;
 }
 
+/** Interface for tools that accept channel/chat context. */
+export interface ContextAware {
+  setContext(channel: string, chatId: string): void;
+}
+
+/** Type guard to check if a tool implements ContextAware. */
+export function isContextAware(tool: Tool): tool is Tool & ContextAware {
+  return "setContext" in tool &&
+    typeof (tool as unknown as ContextAware).setContext === "function";
+}
+
 export class ToolRegistry {
   private tools: Map<string, Tool> = new Map();
 

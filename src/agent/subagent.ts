@@ -24,9 +24,11 @@ interface SubagentConfig {
   temperature?: number;
   maxTokens?: number;
   execTimeoutMs?: number;
+  maxConcurrent?: number;
 }
 
 const MAX_ITERATIONS = 15;
+const MAX_CONCURRENT = 3;
 
 export class SubagentManager {
   private provider: LLMProvider;
@@ -36,6 +38,7 @@ export class SubagentManager {
   private temperature: number;
   private maxTokens: number;
   private execTimeoutMs: number;
+  private maxConcurrent: number;
   private runningTasks: Map<string, Promise<void>> = new Map();
 
   constructor(
@@ -51,6 +54,7 @@ export class SubagentManager {
     this.temperature = config.temperature ?? 0.7;
     this.maxTokens = config.maxTokens ?? 4096;
     this.execTimeoutMs = config.execTimeoutMs ?? 60_000;
+    this.maxConcurrent = config.maxConcurrent ?? MAX_CONCURRENT;
   }
 
   spawn(
@@ -59,6 +63,10 @@ export class SubagentManager {
     originChannel = "cli",
     originChatId = "direct",
   ): string {
+    if (this.runningTasks.size >= this.maxConcurrent) {
+      return `Error: Concurrency limit reached (${this.maxConcurrent} subagents running). Please wait for a task to complete.`;
+    }
+
     const taskId = crypto.randomUUID().slice(0, 8);
     const displayLabel = label ?? task.slice(0, 30) + (task.length > 30 ? "..." : "");
     const origin = { channel: originChannel, chatId: originChatId };
