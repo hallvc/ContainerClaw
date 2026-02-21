@@ -292,7 +292,13 @@ export class EmailChannel extends BaseChannel {
   /** Converts basic markdown to HTML for email responses. */
   private textToHtml(text: string): string {
     if (!text) return "";
-    return text
+    // Escape HTML entities first to prevent injection
+    const escaped = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+    return escaped
       // Code blocks: ```...``` -> <pre><code>...</code></pre>
       .replace(/```(\w*)\n([\s\S]*?)```/g, "<pre><code>$2</code></pre>")
       // Bold: **text** -> <strong>text</strong>
@@ -301,12 +307,15 @@ export class EmailChannel extends BaseChannel {
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
       // Inline code: `code` -> <code>code</code>
       .replace(/`([^`]+)`/g, "<code>$1</code>")
-      // Headers: # text -> <h1>text</h1> etc
+      // Headers
       .replace(/^### (.+)$/gm, "<h3>$1</h3>")
       .replace(/^## (.+)$/gm, "<h2>$1</h2>")
       .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-      // Links: [text](url) -> <a href="url">text</a>
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+      // Links: validate URL scheme before creating anchor tags
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, linkText, url) => {
+        const safe = url.startsWith("https://") || url.startsWith("http://") || url.startsWith("mailto:");
+        return safe ? `<a href="${url}">${linkText}</a>` : linkText;
+      })
       // Line breaks
       .replace(/\n/g, "<br>\n");
   }

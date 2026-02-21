@@ -291,6 +291,32 @@ Deno.test("SessionManager - save updates in-memory cache", async () => {
   }
 });
 
+// Malformed JSONL resilience
+Deno.test("SessionManager - parseJsonl skips malformed lines", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const mgr = new SessionManager(tmpDir);
+    // Create a session file with a corrupt line
+    const sessionsDir = `${tmpDir}/sessions`;
+    await Deno.mkdir(sessionsDir, { recursive: true });
+    const content = [
+      JSON.stringify({ _type: "metadata", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", metadata: {}, last_consolidated: 0 }),
+      '{"role":"user","content":"hello","timestamp":"2026-01-01T00:00:01Z"}',
+      'THIS IS NOT JSON',
+      '{"role":"assistant","content":"hi","timestamp":"2026-01-01T00:00:02Z"}',
+    ].join("\n") + "\n";
+    Deno.writeTextFileSync(`${sessionsDir}/test_key.jsonl`, content);
+
+    const session = mgr.getOrCreate("test:key");
+    // Should have 2 messages (skipped the bad line)
+    assertEquals(session.messages.length, 2);
+    assertEquals(session.messages[0].content, "hello");
+    assertEquals(session.messages[1].content, "hi");
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
 // Cycle 2: clear resets lastConsolidated
 Deno.test("SessionManager - clear resets lastConsolidated to 0", () => {
   const mgr = new SessionManager("/tmp/test-sessions-" + Date.now());

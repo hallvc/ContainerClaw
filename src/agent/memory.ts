@@ -1,5 +1,8 @@
 import { join } from "@std/path";
 
+// Module-level singleton to avoid repeated allocation
+const ENCODER = new TextEncoder();
+
 // --- Types ---
 
 export interface DailyEntry {
@@ -77,7 +80,7 @@ function slugify(text: string): string {
 
 /** Simple SHA-256 hash for content dedup */
 async function contentHash(content: string): Promise<string> {
-  const data = new TextEncoder().encode(content);
+  const data = ENCODER.encode(content);
   const hash = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(hash))
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -219,8 +222,12 @@ function extractTags(text: string): string[] {
     .map(([w]) => w);
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** BM25-inspired scoring for keyword match */
-function scoreMatch(query: string, content: string, tags: string[]): number {
+export function scoreMatch(query: string, content: string, tags: string[]): number {
   const queryTerms = query.toLowerCase().match(/[a-z0-9]+/g) ?? [];
   if (queryTerms.length === 0) return 0;
 
@@ -228,13 +235,16 @@ function scoreMatch(query: string, content: string, tags: string[]): number {
   const tagSet = new Set(tags);
   let score = 0;
 
-  for (const term of queryTerms) {
+  // Pre-compile regexes once per query
+  const termRegexes = queryTerms.map((t) => new RegExp(`\\b${escapeRegExp(t)}\\b`));
+
+  for (let i = 0; i < queryTerms.length; i++) {
     // Exact tag match scores higher
-    if (tagSet.has(term)) {
+    if (tagSet.has(queryTerms[i])) {
       score += 3;
     }
     // Content word-boundary match (prevents "log" matching "biology")
-    if (new RegExp(`\\b${term}\\b`).test(contentLower)) {
+    if (termRegexes[i].test(contentLower)) {
       score += 1;
     }
   }
@@ -261,9 +271,16 @@ const INDEX_VERSION = "1.1.0";
 export class MemoryStore {
   private dataDir: string;
   private indexCache: MemoryIndex | null = null;
+  private _dataDirReady = false;
 
   constructor(dataDir: string) {
     this.dataDir = dataDir;
+  }
+
+  private async ensureDataDir(): Promise<void> {
+    if (this._dataDirReady) return;
+    await Deno.mkdir(this.dataDir, { recursive: true });
+    this._dataDirReady = true;
   }
 
   // ──────────────────────────────────────────────
@@ -323,19 +340,19 @@ export class MemoryStore {
   }
 
   async writeLongTerm(content: string): Promise<void> {
-    await Deno.mkdir(this.dataDir, { recursive: true });
+    await this.ensureDataDir();
     await atomicWrite(this.memoryPath(), content);
   }
 
   async appendHistory(entry: string): Promise<void> {
-    await Deno.mkdir(this.dataDir, { recursive: true });
+    await this.ensureDataDir();
     const line = `[${new Date().toISOString()}] ${entry}\n`;
     await using file = await Deno.open(this.historyPath(), {
       write: true,
       create: true,
       append: true,
     });
-    await file.write(new TextEncoder().encode(line));
+    await file.write(ENCODER.encode(line));
   }
 
   async getMemoryContext(): Promise<string> {
@@ -380,7 +397,7 @@ export class MemoryStore {
       write: true,
       append: true,
     });
-    await file.write(new TextEncoder().encode(lines.join("\n")));
+    await file.write(ENCODER.encode(lines.join("\n")));
     this.indexCache = null; // Invalidate so recall() finds new content
   }
 
@@ -410,7 +427,7 @@ export class MemoryStore {
   }
 
   /** Read today's daily note */
-  async readToday(): Promise<string> {
+  readToday(): Promise<string> {
     return this.readDailyNote(todayStr());
   }
 
@@ -477,7 +494,7 @@ export class MemoryStore {
       const update =
         `\n\n---\n\n**Updated**: ${learning.learned}\n**Source**: ${learning.source}\n\n${learning.content}\n`;
       await using file = await Deno.open(path, { write: true, append: true });
-      await file.write(new TextEncoder().encode(update));
+      await file.write(ENCODER.encode(update));
     } else {
       // Create new learning file
       const md = [
@@ -608,7 +625,7 @@ export class MemoryStore {
       write: true,
       append: true,
     });
-    await file.write(new TextEncoder().encode(line));
+    await file.write(ENCODER.encode(line));
     this.indexCache = null;
   }
 
@@ -975,7 +992,7 @@ export class MemoryStore {
         append: true,
       });
       await file.write(
-        new TextEncoder().encode(`\n---\n\n${content}\n`),
+        ENCODER.encode(`\n---\n\n${content}\n`),
       );
 
       // Remove the daily note

@@ -2,12 +2,11 @@
  * Filesystem tools with workspace confinement.
  */
 
-import { join, resolve } from "@std/path";
+import { resolve } from "@std/path";
 import type { Tool } from "./base.ts";
 
 function assertWithinWorkspace(workspace: string, filePath: string): string {
   // Resolve both paths to absolute without requiring the path to exist yet.
-  // For paths that don't exist we resolve the parent and reattach the basename.
   const abs = resolve(workspace, filePath);
   const realWorkspace = (() => {
     try {
@@ -20,7 +19,19 @@ function assertWithinWorkspace(workspace: string, filePath: string): string {
     try {
       return Deno.realPathSync(abs);
     } catch {
-      // Path doesn't exist yet — resolve the nearest existing ancestor.
+      // Path doesn't exist yet — walk up to the nearest existing ancestor,
+      // resolve it (following symlinks), then reattach the remaining suffix.
+      const parts = abs.split("/");
+      for (let i = parts.length - 1; i > 0; i--) {
+        const ancestor = parts.slice(0, i).join("/") || "/";
+        try {
+          const realAncestor = Deno.realPathSync(ancestor);
+          const suffix = parts.slice(i).join("/");
+          return suffix ? realAncestor + "/" + suffix : realAncestor;
+        } catch {
+          // continue walking up
+        }
+      }
       return abs;
     }
   })();
@@ -70,23 +81,10 @@ export class WriteFileTool implements Tool {
   async execute(args: Record<string, unknown>): Promise<string> {
     const filePath = String(args.path);
     const content = String(args.content);
-    // Compute the absolute path before asserting so we can create parent dirs.
-    const abs = resolve(this.workspace, filePath);
-    const realWorkspace = (() => {
-      try {
-        return Deno.realPathSync(this.workspace);
-      } catch {
-        return resolve(this.workspace);
-      }
-    })();
-    if (!abs.startsWith(realWorkspace + "/") && abs !== realWorkspace) {
-      throw new Error(
-        `Path "${filePath}" is outside the workspace "${this.workspace}".`,
-      );
-    }
-    const parent = abs.substring(0, abs.lastIndexOf("/"));
+    const safe = assertWithinWorkspace(this.workspace, filePath);
+    const parent = safe.substring(0, safe.lastIndexOf("/"));
     await Deno.mkdir(parent, { recursive: true });
-    await Deno.writeTextFile(abs, content);
+    await Deno.writeTextFile(safe, content);
     return `Written ${content.length} bytes to ${filePath}.`;
   }
 }

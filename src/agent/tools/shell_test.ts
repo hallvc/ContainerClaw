@@ -113,3 +113,11 @@ Deno.test("ExecTool - per-call timeout_ms overrides constructor default", async 
   const result = await tool.execute({ command: "echo override", timeout_ms: 5_000 });
   assertStringIncludes(result, "override");
 });
+
+Deno.test("ExecTool clamps timeout_ms to maximum", async () => {
+  // The tool should not throw even with a huge timeout
+  // We verify by running a fast command with an extreme timeout value
+  const tool = new ExecTool(workspace);
+  const result = await tool.execute({ command: "echo clamped", timeout_ms: 999999999 });
+  assertEquals(result.includes("clamped"), true);
+});

@@ -39,6 +39,32 @@ export function isPrivateHost(hostname: string): boolean {
     if (a === 169 && b === 254) return true;
   }
 
+  // Check IPv4-mapped IPv6 addresses.
+  // Dotted-decimal form:  ::ffff:127.0.0.1
+  // Hex form (after URL parsing): ::ffff:7f00:1
+  if (host.startsWith("::ffff:")) {
+    const suffix = host.slice(7);
+    // If it looks like dotted-decimal, recurse directly
+    if (suffix.includes(".")) {
+      return isPrivateHost(suffix);
+    }
+    // Hex form: two colon-separated 16-bit groups, e.g. "7f00:1"
+    const hexParts = suffix.split(":");
+    if (hexParts.length === 2) {
+      const hi = parseInt(hexParts[0], 16);
+      const lo = parseInt(hexParts[1], 16);
+      if (!isNaN(hi) && !isNaN(lo)) {
+        const a = (hi >> 8) & 0xff;
+        const b = hi & 0xff;
+        const c = (lo >> 8) & 0xff;
+        const d = lo & 0xff;
+        return isPrivateHost(`${a}.${b}.${c}.${d}`);
+      }
+    }
+  }
+  // Check for 0 as alias for 0.0.0.0
+  if (host === "0") return true;
+
   return false;
 }
 

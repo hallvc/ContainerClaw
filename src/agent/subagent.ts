@@ -73,7 +73,11 @@ export class SubagentManager {
 
     const bgTask = this.runSubagent(taskId, task, displayLabel, origin);
     this.runningTasks.set(taskId, bgTask);
-    bgTask.finally(() => this.runningTasks.delete(taskId));
+    bgTask
+      .catch((err) => {
+        console.error(`Subagent ${taskId} unhandled error:`, err);
+      })
+      .finally(() => this.runningTasks.delete(taskId));
 
     return `Subagent [${displayLabel}] started (id: ${taskId}). I'll notify you when it completes.`;
   }

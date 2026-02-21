@@ -98,6 +98,12 @@ Deno.test("markdownToTelegramHtml - blockquotes stripped", () => {
   assertEquals(markdownToTelegramHtml("> quoted text"), "quoted text");
 });
 
+Deno.test("markdownToTelegramHtml - blocks javascript: links", () => {
+  const result = markdownToTelegramHtml("[click](javascript:alert(1))");
+  assertEquals(result.includes('href="javascript:'), false);
+  assertEquals(result.includes("click"), true);
+});
+
 // ---------------------------------------------------------------------------
 // splitMessage
 // ---------------------------------------------------------------------------

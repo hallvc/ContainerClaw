@@ -49,7 +49,7 @@ export const EmailConfigSchema = z.object({
   username: z.string().default(""),
   domain: z.string().default(""),
   poll_interval_seconds: z.number().int().positive().default(15),
-  policy: z.enum(["open", "allowlist"]).default("open"),
+  policy: z.enum(["open", "allowlist"]).default("allowlist"),
   allow_from: z.array(z.string()).default([]),
 });
 

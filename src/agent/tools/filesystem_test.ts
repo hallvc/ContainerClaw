@@ -23,6 +23,25 @@ Deno.test("WriteFileTool - rejects path outside workspace", async () => {
   );
 });
 
+Deno.test("WriteFileTool - rejects symlink traversal outside workspace", async () => {
+  // Create a symlink inside the workspace that points outside
+  const symlinkPath = join(workspace, "escape_link");
+  try {
+    await Deno.remove(symlinkPath);
+  } catch { /* ignore if doesn't exist */ }
+  await Deno.symlink("/tmp", symlinkPath);
+
+  const tool = new WriteFileTool(workspace);
+  await assertRejects(
+    () => tool.execute({ path: "escape_link/evil.txt", content: "bad" }),
+    Error,
+    "outside the workspace",
+  );
+
+  // Cleanup
+  await Deno.remove(symlinkPath);
+});
+
 // --- ReadFileTool ---
 
 Deno.test("ReadFileTool - reads existing file", async () => {

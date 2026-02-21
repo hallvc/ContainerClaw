@@ -237,6 +237,22 @@ Deno.test("EmailChannel - textToHtml: handles empty string", () => {
   assertEquals(result, "");
 });
 
+Deno.test("EmailChannel - textToHtml escapes HTML injection", () => {
+  const bus = new MessageBus();
+  const channel = new EmailChannel(makeConfig(), bus);
+  const html = (channel as any).textToHtml('<script>alert("xss")</script>');
+  assertEquals(html.includes("<script>"), false);
+  assertEquals(html.includes("&lt;script&gt;"), true);
+});
+
+Deno.test("EmailChannel - textToHtml blocks javascript: links", () => {
+  const bus = new MessageBus();
+  const channel = new EmailChannel(makeConfig(), bus);
+  const html = (channel as any).textToHtml("[click](javascript:alert(1))");
+  assertEquals(html.includes('href="javascript:'), false);
+  assertEquals(html.includes("click"), true);
+});
+
 // ---------------------------------------------------------------------------
 // processInboundMessage
 // ---------------------------------------------------------------------------

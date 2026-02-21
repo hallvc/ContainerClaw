@@ -192,14 +192,18 @@ export class SessionManager {
     const messages: SessionMessage[] = [];
 
     for (let i = 0; i < lines.length; i++) {
-      const data = JSON.parse(lines[i]);
-      if (data._type === "metadata") {
-        createdAt = data.created_at ?? now;
-        updatedAt = data.updated_at ?? now;
-        metadata = data.metadata ?? {};
-        lastConsolidated = data.last_consolidated ?? 0;
-      } else {
-        messages.push(data as SessionMessage);
+      try {
+        const data = JSON.parse(lines[i]);
+        if (data._type === "metadata") {
+          createdAt = data.created_at ?? now;
+          updatedAt = data.updated_at ?? now;
+          metadata = data.metadata ?? {};
+          lastConsolidated = data.last_consolidated ?? 0;
+        } else {
+          messages.push(data as SessionMessage);
+        }
+      } catch {
+        console.warn(`Skipping malformed session line ${i + 1} for key "${key}"`);
       }
     }
 

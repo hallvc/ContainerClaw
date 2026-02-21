@@ -5,6 +5,7 @@
 import type { Tool } from "./base.ts";
 
 const MAX_OUTPUT = 10_000;
+const MAX_TIMEOUT_MS = 300_000; // 5 minutes absolute ceiling
 
 const DENY_PATTERNS: RegExp[] = [
   /\brm\s+-[rf]{1,2}\b/i,
@@ -49,7 +50,7 @@ export class ExecTool implements Tool {
     if (blocked) return blocked;
 
     const timeoutMs = typeof args.timeout_ms === "number"
-      ? args.timeout_ms
+      ? Math.min(Math.max(1000, Math.floor(args.timeout_ms)), MAX_TIMEOUT_MS)
       : this.defaultTimeoutMs;
 
     const cmd = new Deno.Command("sh", {

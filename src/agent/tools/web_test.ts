@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import { WebFetchTool } from "./web.ts";
+import { WebFetchTool, isPrivateHost } from "./web.ts";
 
 // --- URL validation tests ---
 
@@ -112,6 +112,28 @@ Deno.test("WebFetchTool - blocks unspecified address 0.0.0.0", async () => {
     Error,
     "private",
   );
+});
+
+Deno.test("WebFetchTool - blocks IPv4-mapped IPv6 ::ffff:127.0.0.1", async () => {
+  const tool = new WebFetchTool();
+  await assertRejects(
+    () => tool.execute({ url: "http://[::ffff:127.0.0.1]/admin" }),
+    Error,
+    "private",
+  );
+});
+
+Deno.test("WebFetchTool - blocks IPv4-mapped IPv6 ::ffff:10.0.0.1", async () => {
+  const tool = new WebFetchTool();
+  await assertRejects(
+    () => tool.execute({ url: "http://[::ffff:10.0.0.1]/secret" }),
+    Error,
+    "private",
+  );
+});
+
+Deno.test("isPrivateHost - host '0' is blocked", () => {
+  assertEquals(isPrivateHost("0"), true);
 });
 
 Deno.test("WebFetchTool - allows public IP 8.8.8.8 (no URL validation throw)", () => {

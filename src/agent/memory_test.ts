@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { MemoryStore } from "./memory.ts";
+import { MemoryStore, scoreMatch } from "./memory.ts";
 
 // ──────────────────────────────────────────────
 // Legacy methods (backward compatibility)
@@ -1421,4 +1421,16 @@ Deno.test("MemoryStore - loadIndex rebuilds when version is outdated", async () 
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
+});
+
+// ──────────────────────────────────────────────
+// scoreMatch regex injection safety
+// ──────────────────────────────────────────────
+
+Deno.test("scoreMatch - handles regex metacharacters in query safely", () => {
+  // This should not throw even with regex metacharacters
+  const score = scoreMatch("test(foo) [bar]", "some test content", ["test"]);
+  // Should complete without error and return a valid score
+  assertEquals(typeof score, "number");
+  assertEquals(isNaN(score), false);
 });

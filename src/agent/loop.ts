@@ -99,10 +99,19 @@ export class AgentLoop {
 
   private async connectMcp(): Promise<void> {
     if (this._mcpConnected) return;
-    this._mcpConnected = true;
-    const mcpServers = await loadMcpConfig(this.config.workspace);
-    if (Object.keys(mcpServers).length === 0) return;
-    this._mcpCleanup = await connectMcpServers(mcpServers, this.tools);
+    try {
+      const mcpServers = await loadMcpConfig(this.config.workspace);
+      if (Object.keys(mcpServers).length === 0) {
+        this._mcpConnected = true;
+        return;
+      }
+      this._mcpCleanup = await connectMcpServers(mcpServers, this.tools);
+      this._mcpConnected = true;
+    } catch (err) {
+      console.error("MCP connection failed:", err);
+      // Don't set _mcpConnected so retry is possible
+      throw err;
+    }
   }
 
   async closeMcp(): Promise<void> {
@@ -247,9 +256,8 @@ export class AgentLoop {
       const truncatedResponse = response.length > 200
         ? response.slice(0, 200) + "..."
         : response;
-      await this.memory.appendHistory(`[${source}] User: ${msg.content}`);
       await this.memory.appendHistory(
-        `[${source}] Assistant: ${truncatedResponse}`,
+        `[${source}] User: ${msg.content}\n[${source}] Assistant: ${truncatedResponse}`
       );
 
       // Check if extraction to daily note is needed (Tier 1 consolidation)
@@ -280,6 +288,9 @@ export class AgentLoop {
     const session = this.sessions.getOrCreate(sessionKey);
     this.setToolContext(originChannel, originChatId);
 
+    // Record system message BEFORE building context (matches processMessage pattern)
+    session.addMessage("user", `[System: ${msg.senderId}] ${msg.content}`);
+
     let response: string;
     try {
       const context = new ContextBuilder(
@@ -288,7 +299,8 @@ export class AgentLoop {
         this.skills,
       );
       const history = session.getHistory(this.config.agents.memory_window);
-      const messages = await context.buildMessages(history, msg.content, []);
+      const pastHistory = history.slice(0, -1);
+      const messages = await context.buildMessages(pastHistory, msg.content, []);
 
       const result = await this.runAgentLoop(context, messages);
       response = result.content;
@@ -297,7 +309,7 @@ export class AgentLoop {
       response = "Sorry, I encountered an unexpected error processing this request.";
     }
 
-    session.addMessage("user", `[System: ${msg.senderId}] ${msg.content}`);
+    // Record assistant response AFTER (same pattern as processMessage)
     session.addMessage("assistant", response);
     this.sessions.save(session);
 
@@ -409,7 +421,7 @@ export class AgentLoop {
    */
   private async extractToDaily(
     session: Session,
-    sessionKey: string,
+    _sessionKey: string,
     source: string,
   ): Promise<void> {
     try {

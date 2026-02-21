@@ -39,7 +39,10 @@ export function markdownToTelegramHtml(text: string): string {
   text = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   // 6. Links [text](url)
-  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, linkText, url) => {
+    const safe = url.startsWith("https://") || url.startsWith("http://");
+    return safe ? `<a href="${url}">${linkText}</a>` : linkText;
+  });
 
   // 7. Bold **text** or __text__
   text = text.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");

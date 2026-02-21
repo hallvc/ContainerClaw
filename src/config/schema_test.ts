@@ -3,6 +3,7 @@ import {
   AgentsConfigSchema,
   ConfigSchema,
   CronConfigSchema,
+  EmailConfigSchema,
   OpenRouterConfigSchema,
   RESTRICT_TO_WORKSPACE,
   SlackConfigSchema,
@@ -101,4 +102,10 @@ Deno.test("ConfigSchema - cron defaults", () => {
   assertEquals(config.cron.enabled, true);
   assertEquals(config.cron.tick_interval_ms, 30_000);
   assertEquals(config.cron.job_timeout_ms, 300_000);
+});
+
+Deno.test("EmailConfigSchema - default policy is allowlist", () => {
+  const email = EmailConfigSchema.parse({});
+  assertEquals(email.policy, "allowlist");
+  assertEquals(email.allow_from, []);
 });
