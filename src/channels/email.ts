@@ -165,9 +165,10 @@ export class EmailChannel extends BaseChannel {
     for (const msgItem of messages ?? []) {
       const msgTimestamp = new Date(msgItem.timestamp as string);
 
-      // Stop when we reach messages older than our last poll
+      // Skip messages older than our last poll (use continue, not break,
+      // because the API may not return messages in descending order)
       if (this.lastPollTimestamp && msgTimestamp <= this.lastPollTimestamp) {
-        break;
+        continue;
       }
 
       const msgId = msgItem.messageId as string;

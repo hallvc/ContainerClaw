@@ -519,3 +519,54 @@ Deno.test("EmailChannel - stop: sets _running to false", async () => {
   await channel.stop();
   assertEquals(channel.isRunning, false);
 });
+
+// ---------------------------------------------------------------------------
+// pollMessages ordering resilience
+// ---------------------------------------------------------------------------
+
+Deno.test("EmailChannel - pollMessages: processes messages in ascending order (oldest first)", async () => {
+  const bus = new MessageBus();
+  const channel = new EmailChannel(makeConfig(), bus);
+  (channel as any).inboxAddress = "bot@agentmail.to";
+  (channel as any).inboxId = "inbox-1";
+
+  // Set lastPollTimestamp to a known time
+  const baseTime = new Date("2025-01-01T12:00:00Z");
+  (channel as any).lastPollTimestamp = baseTime;
+
+  // Mock client returning messages in ASCENDING order (oldest first)
+  // First message is older than lastPollTimestamp, second is newer
+  (channel as any).client = {
+    inboxes: {
+      messages: {
+        list: async () => ({
+          messages: [
+            {
+              messageId: "old-msg",
+              timestamp: "2025-01-01T11:00:00Z", // older than lastPollTimestamp
+            },
+            {
+              messageId: "new-msg",
+              timestamp: "2025-01-01T13:00:00Z", // newer than lastPollTimestamp
+            },
+          ],
+        }),
+        get: async (_inboxId: string, msgId: string) => ({
+          messageId: msgId,
+          from: "user@example.com",
+          threadId: `thread-${msgId}`,
+          text: `content-${msgId}`,
+          to: ["bot@agentmail.to"],
+        }),
+      },
+    },
+  };
+
+  await (channel as any).pollMessages();
+
+  // The newer message should have been processed even though it appeared
+  // after the older message in the list (ascending order)
+  assertEquals(bus.inboundSize, 1);
+  const msg = await bus.consumeInbound();
+  assertEquals(msg.content, "content-new-msg");
+});

@@ -607,3 +607,69 @@ Deno.test("SlackChannel - stop: sets _running to false", async () => {
   await channel.stop();
   assertEquals(channel.isRunning, false);
 });
+
+// ---------------------------------------------------------------------------
+// Error resilience
+// ---------------------------------------------------------------------------
+
+Deno.test("SlackChannel - onSocketEvent: ack failure does not prevent message processing", async () => {
+  const bus = new MessageBus();
+  const channel = new SlackChannel(
+    makeConfig({ dm: { enabled: true, policy: "open", allowFrom: [] } }),
+    bus,
+  );
+  (channel as any).botUserId = "U_BOT";
+  (channel as any).webClient = {
+    reactions: { add: async () => {} },
+  };
+
+  const ack = async () => {
+    throw new Error("ack failed");
+  };
+
+  await (channel as any).onSocketEvent(ack, {
+    type: "message",
+    user: "U_USER",
+    channel: "D_DM",
+    channel_type: "im",
+    text: "hello",
+    ts: "1234.5678",
+  });
+
+  // Message should still be published despite ack failure
+  assertEquals(bus.inboundSize, 1);
+  const msg = await bus.consumeInbound();
+  assertEquals(msg.content, "hello");
+});
+
+Deno.test("SlackChannel - onSocketEvent: processing error does not propagate", async () => {
+  const bus = new MessageBus();
+  const channel = new SlackChannel(
+    makeConfig({ dm: { enabled: true, policy: "open", allowFrom: [] } }),
+    bus,
+  );
+  (channel as any).botUserId = "U_BOT";
+  // webClient.reactions.add throws to simulate mid-processing error
+  (channel as any).webClient = {
+    reactions: {
+      add: async () => {
+        throw new Error("reactions failed");
+      },
+    },
+  };
+
+  const ack = async () => {};
+
+  // Should not throw — error is caught internally
+  await (channel as any).onSocketEvent(ack, {
+    type: "message",
+    user: "U_USER",
+    channel: "D_DM",
+    channel_type: "im",
+    text: "hello",
+    ts: "1234.5678",
+  });
+
+  // Message should still be published (reactions.add failure is best-effort)
+  assertEquals(bus.inboundSize, 1);
+});

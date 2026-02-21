@@ -4,6 +4,12 @@
 
 import type { InboundMessage, OutboundMessage } from "./events.ts";
 
+export interface DeadLetterEntry {
+  message: OutboundMessage;
+  error: string;
+  timestamp: Date;
+}
+
 type OutboundCallback = (msg: OutboundMessage) => Promise<void>;
 
 /**
@@ -18,6 +24,7 @@ export class MessageBus {
   private inboundResolvers: ((msg: InboundMessage) => void)[] = [];
   private outboundResolvers: ((msg: OutboundMessage) => void)[] = [];
   private outboundSubscribers: Map<string, OutboundCallback[]> = new Map();
+  private deadLetters: DeadLetterEntry[] = [];
   private _running = false;
 
   async publishInbound(msg: InboundMessage): Promise<void> {
@@ -102,6 +109,14 @@ export class MessageBus {
             await callback(msg);
           } catch (e) {
             console.error(`Error dispatching to ${msg.channel}:`, e);
+            this.deadLetters.push({
+              message: msg,
+              error: e instanceof Error ? e.message : String(e),
+              timestamp: new Date(),
+            });
+            if (this.deadLetters.length > 100) {
+              this.deadLetters.shift();
+            }
           }
         }
       } catch {
@@ -142,5 +157,13 @@ export class MessageBus {
 
   get outboundSize(): number {
     return this.outboundQueue.length;
+  }
+
+  get deadLetterSize(): number {
+    return this.deadLetters.length;
+  }
+
+  get deadLetterQueue(): DeadLetterEntry[] {
+    return [...this.deadLetters];
   }
 }

@@ -54,8 +54,20 @@ export class SlackChannel extends BaseChannel {
       console.warn(`Slack auth.test failed: ${e}`);
     }
 
+    this.socketClient.on("error", (err: Error) => {
+      console.error(`Slack socket error: ${err.message}`);
+    });
+
+    this.socketClient.on("disconnected", () => {
+      console.warn("Slack socket disconnected");
+    });
+
     this.socketClient.on("slack_event", async ({ ack, event }) => {
-      await this.onSocketEvent(ack, event);
+      try {
+        await this.onSocketEvent(ack, event);
+      } catch (e) {
+        console.error(`Slack event handler error: ${e}`);
+      }
     });
 
     await this.socketClient.start();
@@ -103,7 +115,11 @@ export class SlackChannel extends BaseChannel {
     event: Record<string, unknown>,
   ): Promise<void> {
     // Acknowledge immediately
-    await ack();
+    try {
+      await ack();
+    } catch (e) {
+      console.warn(`Slack ack failed: ${e}`);
+    }
 
     const eventType = event.type as string | undefined;
 
