@@ -159,6 +159,10 @@ export class ContextBuilder {
     this.messages.push(msg);
   }
 
+  addUserHint(content: string): void {
+    this.messages.push({ role: "user", content });
+  }
+
   getMessages(): ChatMessage[] {
     return this.messages;
   }

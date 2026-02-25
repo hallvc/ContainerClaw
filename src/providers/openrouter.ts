@@ -6,6 +6,8 @@ const API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const RETRY_MAX_ATTEMPTS = 3;
 const RETRY_INITIAL_DELAY_MS = 1000;
 const RETRY_MAX_DELAY_MS = 8000;
+const INITIAL_RESPONSE_TIMEOUT_MS = 30_000; // 30s for initial HTTP connection
+const STREAM_CHUNK_TIMEOUT_MS = 120_000; // 2min idle between SSE chunks
 
 interface OpenRouterChoice {
   message: {
@@ -32,6 +34,36 @@ interface OpenRouterResponseBody {
   error?: { message: string };
 }
 
+// Streaming SSE types
+interface StreamDelta {
+  content?: string | null;
+  reasoning_content?: string | null;
+  reasoning?: string | null;
+  tool_calls?: Array<{
+    index: number;
+    id?: string;
+    function?: {
+      name?: string;
+      arguments?: string;
+    };
+  }>;
+}
+
+interface StreamChoice {
+  index: number;
+  delta: StreamDelta;
+  finish_reason: string | null;
+}
+
+interface StreamChunk {
+  choices?: StreamChoice[];
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
+}
+
 function parseToolArguments(raw: string): Record<string, unknown> {
   try {
     return JSON.parse(raw);
@@ -43,6 +75,126 @@ function parseToolArguments(raw: string): Record<string, unknown> {
       return {};
     }
   }
+}
+
+/**
+ * Async generator that consumes an SSE stream and yields parsed StreamChunk objects.
+ * Handles keepalive comments, empty lines, and malformed chunks gracefully.
+ */
+async function* parseSSEStream(
+  body: ReadableStream<Uint8Array>,
+  idleTimeoutMs: number,
+): AsyncGenerator<StreamChunk> {
+  const reader = body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+
+  try {
+    while (true) {
+      let timeoutId: ReturnType<typeof setTimeout>;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`Stream idle timeout after ${idleTimeoutMs}ms`));
+        }, idleTimeoutMs);
+      });
+
+      let result: ReadableStreamReadResult<string>;
+      try {
+        result = await Promise.race([reader.read(), timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutId!);
+      }
+
+      if (result.done) break;
+
+      buffer += result.value;
+      const lines = buffer.split("\n");
+      buffer = lines.pop()!; // Keep incomplete last line in buffer
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed === "" || trimmed.startsWith(":")) continue;
+
+        if (trimmed.startsWith("data:")) {
+          const payload = trimmed.slice(5).trim();
+          if (payload === "[DONE]") return;
+
+          try {
+            yield JSON.parse(payload) as StreamChunk;
+          } catch {
+            console.warn(`Malformed SSE chunk: ${payload.slice(0, 200)}`);
+          }
+        }
+      }
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+}
+
+/**
+ * Consumes an SSE stream and assembles a complete LLMResponse.
+ */
+async function accumulateStream(
+  body: ReadableStream<Uint8Array>,
+  idleTimeoutMs: number,
+): Promise<LLMResponse> {
+  let content = "";
+  let reasoning = "";
+  const toolCallMap = new Map<number, { id: string; name: string; arguments: string }>();
+  let finishReason = "stop";
+  let usage:
+    | { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+    | undefined;
+
+  for await (const chunk of parseSSEStream(body, idleTimeoutMs)) {
+    if (!chunk.choices?.length) {
+      if (chunk.usage) usage = chunk.usage;
+      continue;
+    }
+
+    const choice = chunk.choices[0];
+    const delta = choice.delta;
+
+    if (delta.content) content += delta.content;
+    if (delta.reasoning_content) reasoning += delta.reasoning_content;
+    else if (delta.reasoning) reasoning += delta.reasoning;
+
+    if (delta.tool_calls) {
+      for (const tc of delta.tool_calls) {
+        const existing = toolCallMap.get(tc.index);
+        if (existing) {
+          if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+        } else {
+          toolCallMap.set(tc.index, {
+            id: tc.id ?? "",
+            name: tc.function?.name ?? "",
+            arguments: tc.function?.arguments ?? "",
+          });
+        }
+      }
+    }
+
+    if (choice.finish_reason) finishReason = choice.finish_reason;
+    if (chunk.usage) usage = chunk.usage;
+  }
+
+  const toolCalls: ToolCallRequest[] = Array.from(toolCallMap.values()).map((tc) => ({
+    id: tc.id,
+    name: tc.name,
+    arguments: parseToolArguments(tc.arguments),
+  }));
+
+  return {
+    content: content || null,
+    reasoning_content: reasoning || null,
+    toolCalls,
+    finishReason,
+    usage: {
+      promptTokens: usage?.prompt_tokens,
+      completionTokens: usage?.completion_tokens,
+      totalTokens: usage?.total_tokens,
+    },
+  };
 }
 
 /**
@@ -83,8 +235,14 @@ async function withRetry(
 
       return response;
     } catch (err) {
-      // Do not retry TimeoutError
+      // Retry TimeoutError like other transient failures
       if (err instanceof DOMException && err.name === "TimeoutError") {
+        lastNetworkError = err;
+        if (attempt < RETRY_MAX_ATTEMPTS - 1) {
+          console.warn(`Retrying after timeout (attempt ${attempt + 1})`);
+          await new Promise((resolve) => setTimeout(resolve, RETRY_INITIAL_DELAY_MS));
+          continue;
+        }
         throw err;
       }
       lastNetworkError = err;
@@ -136,6 +294,7 @@ export class OpenRouterProvider implements LLMProvider {
       messages: params.messages,
       max_tokens: params.maxTokens,
       temperature: params.temperature,
+      stream: true,
     };
 
     if (params.tools && params.tools.length > 0) {
@@ -150,14 +309,31 @@ export class OpenRouterProvider implements LLMProvider {
           headers: {
             "Authorization": `Bearer ${this.apiKey}`,
             "Content-Type": "application/json",
+            "Accept": "text/event-stream",
             "HTTP-Referer": "https://github.com/containerclaw/containerclaw",
             "X-Title": "containerclaw",
           },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(60_000),
+          signal: AbortSignal.timeout(INITIAL_RESPONSE_TIMEOUT_MS),
         })
       );
 
+      const contentType = response.headers.get("content-type") ?? "";
+
+      // SSE streaming response
+      if (contentType.includes("text/event-stream")) {
+        if (!response.body) {
+          return {
+            content: "No response body from streaming request",
+            toolCalls: [],
+            finishReason: "error",
+            usage: {},
+          };
+        }
+        return await accumulateStream(response.body, STREAM_CHUNK_TIMEOUT_MS);
+      }
+
+      // Non-streaming JSON response (error responses, fallback)
       const data: OpenRouterResponseBody = await response.json();
 
       if (!response.ok || data.error) {

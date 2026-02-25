@@ -32,12 +32,14 @@ export class MessageTool implements Tool {
 
   private defaultChannel?: string;
   private defaultChatId?: string;
+  private defaultMetadata: Record<string, unknown> = {};
 
   constructor(private sendCallback: SendCallback) {}
 
-  setContext(channel: string, chatId: string): void {
+  setContext(channel: string, chatId: string, metadata?: Record<string, unknown>): void {
     this.defaultChannel = channel;
     this.defaultChatId = chatId;
+    this.defaultMetadata = metadata ?? {};
   }
 
   async execute(args: Record<string, unknown>): Promise<string> {
@@ -53,7 +55,7 @@ export class MessageTool implements Tool {
       chatId,
       content,
       media: [],
-      metadata: {},
+      metadata: { ...this.defaultMetadata },
     };
 
     await this.sendCallback(msg);

@@ -19,6 +19,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
       memory_window: 10,
       consolidation_threshold: 50,
       max_iterations: 5,
+      progress_updates: true,
     },
     email: {
       api_key: "",
@@ -67,6 +68,7 @@ Deno.test("getStatus - shows per-role models when configured", () => {
       memory_window: 10,
       consolidation_threshold: 50,
       max_iterations: 5,
+      progress_updates: true,
     },
   });
   const status = getStatus(config);

@@ -11,6 +11,7 @@ import { join } from "@std/path";
 import type { Tool } from "./base.ts";
 import { ToolRegistry } from "./base.ts";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import { performOAuthFlow } from "./mcp_auth.ts";
 
 export interface MCPServerConfig {
   command?: string;
@@ -144,8 +145,47 @@ async function registerTools(
 }
 
 /**
+ * Attempt to connect a transport, handling OAuth authorization inline.
+ * If the SDK throws UnauthorizedError and an authProvider is present,
+ * waits for the browser OAuth callback and reconnects with new tokens.
+ */
+async function connectWithAuth(
+  name: string,
+  url: URL,
+  opts: { requestInit?: RequestInit; authProvider?: OAuthClientProvider },
+  createTransport: () => StreamableHTTPClientTransport | SSEClientTransport,
+  registry: ToolRegistry,
+): Promise<{ client: MCPClient; cleanup: () => Promise<void> }> {
+  const transport = createTransport();
+  const client = new Client({ name: "containerclaw", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+  } catch (err) {
+    if (err instanceof UnauthorizedError && opts.authProvider) {
+      // SDK did discovery + redirect; wait for browser callback
+      console.log(
+        `MCP server '${name}': authorization required, waiting for browser auth...`,
+      );
+      await performOAuthFlow(transport);
+      console.log(`MCP server '${name}': authorization complete!`);
+
+      // Reconnect with the now-valid tokens
+      const newTransport = createTransport();
+      const newClient = new Client({ name: "containerclaw", version: "1.0.0" });
+      await newClient.connect(newTransport);
+      await registerTools(newClient, name, registry);
+      return { client: newClient, cleanup: () => newClient.close() };
+    }
+    throw err;
+  }
+  await registerTools(client, name, registry);
+  return { client, cleanup: () => client.close() };
+}
+
+/**
  * Connect a URL-based MCP server with transport auto-detection.
  * Tries Streamable HTTP first, falls back to SSE on failure.
+ * Handles OAuth authorization inline when an authProvider is present.
  */
 async function connectUrlServer(
   name: string,
@@ -158,22 +198,22 @@ async function connectUrlServer(
 
   // If transport is forced to SSE, use it directly
   if (cfg.transport === "sse") {
-    const transport = new SSEClientTransport(url, opts);
-    const client = new Client({ name: "containerclaw", version: "1.0.0" });
-    await client.connect(transport);
-    await registerTools(client, name, registry);
-    return { client, cleanup: () => client.close() };
+    return connectWithAuth(
+      name, url, opts,
+      () => new SSEClientTransport(url, opts),
+      registry,
+    );
   }
 
   // Try Streamable HTTP first
   try {
-    const transport = new StreamableHTTPClientTransport(url, opts);
-    const client = new Client({ name: "containerclaw", version: "1.0.0" });
-    await client.connect(transport);
-    await registerTools(client, name, registry);
-    return { client, cleanup: () => client.close() };
+    return await connectWithAuth(
+      name, url, opts,
+      () => new StreamableHTTPClientTransport(url, opts),
+      registry,
+    );
   } catch (err) {
-    // Don't fall back on auth errors -- those need user action
+    // Don't fall back on auth errors -- those need user action or already handled
     if (err instanceof UnauthorizedError) throw err;
 
     // If transport was explicitly set, don't fall back
@@ -183,11 +223,11 @@ async function connectUrlServer(
     console.log(
       `MCP server '${name}': Streamable HTTP failed, trying SSE fallback...`,
     );
-    const sseTransport = new SSEClientTransport(url, opts);
-    const sseClient = new Client({ name: "containerclaw", version: "1.0.0" });
-    await sseClient.connect(sseTransport);
-    await registerTools(sseClient, name, registry);
-    return { client: sseClient, cleanup: () => sseClient.close() };
+    return connectWithAuth(
+      name, url, opts,
+      () => new SSEClientTransport(url, opts),
+      registry,
+    );
   }
 }
 

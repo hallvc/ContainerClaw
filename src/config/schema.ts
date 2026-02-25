@@ -41,6 +41,7 @@ export const AgentsConfigSchema = z.object({
   consolidation_threshold: z.number().int().positive().default(50),
   max_iterations: z.number().int().positive().default(20),
   token_budget: z.number().int().positive().optional(),
+  progress_updates: z.boolean().default(true),
 });
 
 export const EmailConfigSchema = z.object({

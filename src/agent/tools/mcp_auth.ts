@@ -204,4 +204,20 @@ export function openBrowser(url: string): void {
   }
 }
 
+/**
+ * Perform the OAuth callback flow after the SDK has redirected the user.
+ * Spins up the local callback server, waits for the authorization code,
+ * and calls transport.finishAuth() to complete the token exchange.
+ */
+export async function performOAuthFlow(
+  transport: { finishAuth(code: string): Promise<void> },
+  options?: { port?: number; timeoutMs?: number },
+): Promise<string> {
+  const port = options?.port ?? CALLBACK_PORT;
+  const timeoutMs = options?.timeoutMs ?? OAUTH_TIMEOUT_MS;
+  const authCode = await waitForOAuthCallback(port, timeoutMs);
+  await transport.finishAuth(authCode);
+  return authCode;
+}
+
 export { CALLBACK_PORT, CALLBACK_URL, OAUTH_TIMEOUT_MS };

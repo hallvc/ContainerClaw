@@ -25,6 +25,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
       memory_window: 10,
       consolidation_threshold: 50,
       max_iterations: 5,
+      progress_updates: true,
     },
     email: {
       api_key: "",
@@ -269,6 +270,7 @@ Deno.test("AgentLoop - processDirect stops at maxIterations with fallback messag
         memory_window: 10,
         consolidation_threshold: 50,
         max_iterations: 2,
+        progress_updates: true,
       },
     });
     // Always returns tool calls so we never finish naturally
@@ -525,6 +527,7 @@ Deno.test("AgentLoop - memory consolidation triggers when message count exceeds 
         memory_window: 2,
         consolidation_threshold: 2,
         max_iterations: 5,
+        progress_updates: true,
       },
     });
 
@@ -860,6 +863,7 @@ Deno.test("AgentLoop - memory consolidation handles provider errors gracefully",
         memory_window: 2,
         consolidation_threshold: 2,
         max_iterations: 5,
+        progress_updates: true,
       },
     });
 
@@ -1047,6 +1051,7 @@ Deno.test("AgentLoop - runAgentLoop stops when token budget exceeded", async () 
         consolidation_threshold: 50,
         max_iterations: 10,
         token_budget: 1000,
+        progress_updates: true,
       },
     });
     let callCount = 0;

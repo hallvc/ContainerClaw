@@ -200,6 +200,57 @@ Deno.test("OAuthProvider - redirectToAuthorization calls onRedirect callback", a
   );
 });
 
+// --- performOAuthFlow tests ---
+
+Deno.test({
+  name: "performOAuthFlow - calls finishAuth with authorization code",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    const { performOAuthFlow } = await import("./mcp_auth.ts");
+
+    const finishAuthCalls: string[] = [];
+    const mockTransport = {
+      finishAuth(code: string) {
+        finishAuthCalls.push(code);
+        return Promise.resolve();
+      },
+    };
+
+    // Use a unique port to avoid conflicts, short timeout
+    const port = 18990;
+
+    // Start the OAuth flow in the background
+    const flowPromise = performOAuthFlow(mockTransport, { port, timeoutMs: 5000 });
+
+    // Simulate the browser redirect callback
+    await new Promise((r) => setTimeout(r, 200));
+    const resp = await fetch(`http://localhost:${port}/callback?code=test-auth-code-123`);
+    assertEquals(resp.status, 200);
+    await resp.body?.cancel();
+
+    const result = await flowPromise;
+    assertEquals(result, "test-auth-code-123");
+    assertEquals(finishAuthCalls, ["test-auth-code-123"]);
+  },
+});
+
+Deno.test("performOAuthFlow - propagates timeout error", async () => {
+  const { performOAuthFlow } = await import("./mcp_auth.ts");
+
+  const mockTransport = {
+    finishAuth(_code: string) {
+      return Promise.resolve();
+    },
+  };
+
+  await assertRejects(
+    () => performOAuthFlow(mockTransport, { port: 18991, timeoutMs: 100 }),
+    Error,
+    "timed out",
+  );
+});
+
 // --- waitForOAuthCallback tests ---
 
 Deno.test("waitForOAuthCallback - times out with clear message", async () => {

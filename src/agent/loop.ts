@@ -17,7 +17,7 @@ import { CronTool } from "./tools/cron.ts";
 import { SpawnTool } from "./tools/spawn.ts";
 import { LearnTool } from "./tools/learn.ts";
 import { connectMcpServers, loadMcpConfig } from "./tools/mcp.ts";
-import { ContainerclawOAuthProvider } from "./tools/mcp_auth.ts";
+import { ContainerclawOAuthProvider, openBrowser } from "./tools/mcp_auth.ts";
 import type { CronService } from "../cron/service.ts";
 import { SubagentManager } from "./subagent.ts";
 import { SessionManager } from "../session/manager.ts";
@@ -108,18 +108,22 @@ export class AgentLoop {
         return;
       }
 
-      // Build OAuth providers for servers that have OAuth config
+      // Build OAuth providers for ALL URL-based servers (not just ones with existing tokens).
+      // This lets the SDK handle first-time OAuth discovery and authorization automatically.
+      // Servers with static Bearer token headers don't need OAuth.
       const authProviders: Record<string, ContainerclawOAuthProvider> = {};
       for (const [name, cfg] of Object.entries(mcpServers)) {
-        if (cfg.oauth?.tokens) {
+        if (cfg.url && !cfg.headers?.Authorization) {
           authProviders[name] = new ContainerclawOAuthProvider(
             name,
             this.config.workspace,
             cfg,
             (url) => {
               console.log(
-                `MCP server '${name}': re-authorization needed. Visit: ${url}`,
+                `\nMCP server '${name}': authorization required.`,
               );
+              console.log(`  Visit: ${url}`);
+              openBrowser(url.toString());
             },
           );
         }
@@ -146,11 +150,11 @@ export class AgentLoop {
     }
   }
 
-  private setToolContext(channel: string, chatId: string): void {
+  private setToolContext(channel: string, chatId: string, metadata?: Record<string, unknown>): void {
     for (const name of ["message", "cron", "spawn"]) {
       const tool = this.tools.get(name);
       if (tool && isContextAware(tool)) {
-        tool.setContext(channel, chatId);
+        tool.setContext(channel, chatId, metadata);
       }
     }
   }
@@ -204,7 +208,7 @@ export class AgentLoop {
       return this.processSystemMessage(msg);
     }
 
-    this.setToolContext(msg.channel, msg.chatId);
+    this.setToolContext(msg.channel, msg.chatId, msg.metadata);
     const sessionKey = getSessionKey(msg);
     const session = this.sessions.getOrCreate(sessionKey);
 
@@ -262,7 +266,19 @@ export class AgentLoop {
       );
 
       // Run agent iteration loop
-      const result = await this.runAgentLoop(context, messages);
+      const onProgress = this.config.agents.progress_updates !== false
+        ? async (content: string) => {
+            await this.bus.publishOutbound({
+              channel: msg.channel,
+              chatId: msg.chatId,
+              content,
+              media: [],
+              metadata: msg.metadata ?? {},
+            });
+          }
+        : undefined;
+
+      const result = await this.runAgentLoop(context, messages, onProgress);
       response = result.content;
     } catch (err) {
       console.error("Error in agent processing:", err);
@@ -364,13 +380,26 @@ export class AgentLoop {
         name?: string;
       }
     >,
+    onProgress?: (content: string) => Promise<void>,
   ): Promise<AgentLoopResult> {
     const maxIterations = this.config.agents.max_iterations;
     const tokenBudget = this.config.agents.token_budget;
     let lastContent = "";
     const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, iterations: 0 };
+    let progressSent = false;
 
     for (let i = 0; i < maxIterations; i++) {
+      // After first tool-call iteration completes, send automatic progress signal
+      if (i === 1 && onProgress && !progressSent) {
+        await onProgress("Working on this — I'll update you as I go.");
+        progressSent = true;
+
+        // Inject hint asking LLM to summarize its plan via the message tool
+        context.addUserHint(
+          "[System instruction]: You are working on a multi-step task. Before continuing, use the `message` tool to send the user a brief summary of your plan (2-3 sentences, what you're going to do and why). Then continue executing."
+        );
+        messages = context.getMessages();
+      }
       // Budget check before next LLM call (skip on first iteration)
       if (tokenBudget && usage.totalTokens >= tokenBudget) {
         console.log(`Token budget exhausted: ${usage.totalTokens}/${tokenBudget}`);

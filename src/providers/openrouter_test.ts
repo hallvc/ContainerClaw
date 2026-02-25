@@ -135,6 +135,7 @@ Deno.test("OpenRouterProvider - chat sends correct URL and headers", async () =>
     const headers = stub.calls[0].init.headers as Record<string, string>;
     assertEquals(headers["Authorization"], "Bearer sk-my-key");
     assertEquals(headers["Content-Type"], "application/json");
+    assertEquals(headers["Accept"], "text/event-stream");
     assertEquals(headers["HTTP-Referer"], "https://github.com/containerclaw/containerclaw");
     assertEquals(headers["X-Title"], "containerclaw");
   } finally {
@@ -158,6 +159,7 @@ Deno.test("OpenRouterProvider - chat sends correct request body without tools", 
     assertEquals(body.messages, [{ role: "user", content: "Test" }]);
     assertEquals(body.max_tokens, 200);
     assertEquals(body.temperature, 0.8);
+    assertEquals(body.stream, true);
     assertEquals(body.tools, undefined);
     assertEquals(body.tool_choice, undefined);
   } finally {
@@ -632,7 +634,7 @@ Deno.test("OpenRouterProvider - parseToolArguments warns when both parse attempt
 // Fix 2: Request timeout
 // ---------------------------------------------------------------------------
 
-Deno.test("OpenRouterProvider - chat returns error on TimeoutError and does not retry", async () => {
+Deno.test("OpenRouterProvider - chat retries on TimeoutError then returns error", async () => {
   let fetchCallCount = 0;
   const original = globalThis.fetch;
   globalThis.fetch = (): Promise<Response> => {
@@ -646,8 +648,8 @@ Deno.test("OpenRouterProvider - chat returns error on TimeoutError and does not 
       messages: [{ role: "user", content: "Hi" }],
     });
 
-    // TimeoutError should NOT be retried - only 1 fetch call
-    assertEquals(fetchCallCount, 1);
+    // TimeoutError should be retried like other transient errors (3 attempts)
+    assertEquals(fetchCallCount, 3);
     assertEquals(result.finishReason, "error");
   } finally {
     globalThis.fetch = original;
@@ -797,6 +799,414 @@ Deno.test("OpenRouterProvider - chat gives up after max retries and returns erro
     assertEquals(result.finishReason, "error");
     assertEquals(result.toolCalls, []);
     assertEquals(result.usage, {});
+  } finally {
+    stub.restore();
+  }
+});
+
+// ===========================================================================
+// SSE Streaming Tests
+// ===========================================================================
+
+/** Build SSE text from an array of events (objects become `data: JSON`, strings pass through). */
+function makeSSEBody(
+  events: Array<Record<string, unknown> | string>,
+): string {
+  return events
+    .map((event) => {
+      if (typeof event === "string") return event + "\n";
+      return `data: ${JSON.stringify(event)}\n\n`;
+    })
+    .join("");
+}
+
+/** Stub globalThis.fetch to return an SSE streaming response with a ReadableStream body. */
+function stubFetchSSE(
+  events: Array<Record<string, unknown> | string>,
+): { calls: Array<{ url: string; init: RequestInit }>; restore: () => void } {
+  const original = globalThis.fetch;
+  const calls: Array<{ url: string; init: RequestInit }> = [];
+  const sseText = makeSSEBody(events);
+
+  globalThis.fetch = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    calls.push({ url, init: init ?? {} });
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(sseText));
+        controller.close();
+      },
+    });
+
+    return Promise.resolve(
+      new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    );
+  };
+
+  return { calls, restore: () => { globalThis.fetch = original; } };
+}
+
+// ---------------------------------------------------------------------------
+// SSE 1. Basic text streaming
+// ---------------------------------------------------------------------------
+
+Deno.test("SSE streaming - assembles text content from multiple deltas", async () => {
+  const stub = stubFetchSSE([
+    { choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }] },
+    { choices: [{ index: 0, delta: { content: "Hello" }, finish_reason: null }] },
+    { choices: [{ index: 0, delta: { content: " world" }, finish_reason: null }] },
+    { choices: [{ index: 0, delta: { content: "!" }, finish_reason: null }] },
+    {
+      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+      usage: { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 },
+    },
+    "data: [DONE]\n",
+  ]);
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.content, "Hello world!");
+    assertEquals(result.toolCalls, []);
+    assertEquals(result.finishReason, "stop");
+    assertEquals(result.usage.promptTokens, 10);
+    assertEquals(result.usage.completionTokens, 3);
+    assertEquals(result.usage.totalTokens, 13);
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SSE 2. Tool call streaming (index-based accumulation)
+// ---------------------------------------------------------------------------
+
+Deno.test("SSE streaming - assembles tool calls from chunked deltas", async () => {
+  const stub = stubFetchSSE([
+    {
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index: 0,
+            id: "call_abc",
+            function: { name: "read_file", arguments: "" },
+          }],
+        },
+        finish_reason: null,
+      }],
+    },
+    {
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{ index: 0, function: { arguments: '{"path"' } }],
+        },
+        finish_reason: null,
+      }],
+    },
+    {
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{ index: 0, function: { arguments: ':"/tmp/test.txt"}' } }],
+        },
+        finish_reason: null,
+      }],
+    },
+    {
+      choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    },
+    "data: [DONE]\n",
+  ]);
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Read a file" }],
+    });
+
+    assertEquals(result.content, null);
+    assertEquals(result.toolCalls.length, 1);
+    assertEquals(result.toolCalls[0].id, "call_abc");
+    assertEquals(result.toolCalls[0].name, "read_file");
+    assertEquals(result.toolCalls[0].arguments, { path: "/tmp/test.txt" });
+    assertEquals(result.finishReason, "tool_calls");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SSE 3. Multiple tool calls in parallel
+// ---------------------------------------------------------------------------
+
+Deno.test("SSE streaming - assembles multiple tool calls by index", async () => {
+  const stub = stubFetchSSE([
+    {
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [
+            { index: 0, id: "call_1", function: { name: "read_file", arguments: "" } },
+            { index: 1, id: "call_2", function: { name: "exec", arguments: "" } },
+          ],
+        },
+        finish_reason: null,
+      }],
+    },
+    {
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [
+            { index: 0, function: { arguments: '{"path":"/a"}' } },
+            { index: 1, function: { arguments: '{"cmd":"ls"}' } },
+          ],
+        },
+        finish_reason: null,
+      }],
+    },
+    {
+      choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+      usage: { prompt_tokens: 5, completion_tokens: 10, total_tokens: 15 },
+    },
+    "data: [DONE]\n",
+  ]);
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Do two things" }],
+    });
+
+    assertEquals(result.toolCalls.length, 2);
+    assertEquals(result.toolCalls[0].id, "call_1");
+    assertEquals(result.toolCalls[0].name, "read_file");
+    assertEquals(result.toolCalls[0].arguments, { path: "/a" });
+    assertEquals(result.toolCalls[1].id, "call_2");
+    assertEquals(result.toolCalls[1].name, "exec");
+    assertEquals(result.toolCalls[1].arguments, { cmd: "ls" });
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SSE 4. Keepalive comments are ignored
+// ---------------------------------------------------------------------------
+
+Deno.test("SSE streaming - ignores keepalive comments", async () => {
+  const stub = stubFetchSSE([
+    ": OPENROUTER PROCESSING\n",
+    { choices: [{ index: 0, delta: { content: "Hi" }, finish_reason: null }] },
+    ": OPENROUTER PROCESSING\n",
+    ": OPENROUTER PROCESSING\n",
+    {
+      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    },
+    "data: [DONE]\n",
+  ]);
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.content, "Hi");
+    assertEquals(result.finishReason, "stop");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SSE 5. Mixed content + tool calls
+// ---------------------------------------------------------------------------
+
+Deno.test("SSE streaming - handles mixed content and tool calls", async () => {
+  const stub = stubFetchSSE([
+    { choices: [{ index: 0, delta: { content: "Let me help." }, finish_reason: null }] },
+    {
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{ index: 0, id: "call_x", function: { name: "search", arguments: '{"q":"test"}' } }],
+        },
+        finish_reason: null,
+      }],
+    },
+    {
+      choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+      usage: { prompt_tokens: 5, completion_tokens: 10, total_tokens: 15 },
+    },
+    "data: [DONE]\n",
+  ]);
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Search for something" }],
+    });
+
+    assertEquals(result.content, "Let me help.");
+    assertEquals(result.toolCalls.length, 1);
+    assertEquals(result.toolCalls[0].name, "search");
+    assertEquals(result.toolCalls[0].arguments, { q: "test" });
+    assertEquals(result.finishReason, "tool_calls");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SSE 6. Non-streaming JSON error fallback (Content-Type routing)
+// ---------------------------------------------------------------------------
+
+Deno.test("SSE streaming - falls back to JSON parsing for error responses", async () => {
+  // Error responses come as application/json, not text/event-stream
+  const stub = stubFetch(
+    JSON.stringify({ error: { message: "Invalid API key" } }),
+    401,
+  );
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.finishReason, "error");
+    assertEquals(result.content, "Invalid API key");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SSE 7. Malformed SSE chunk skipped gracefully
+// ---------------------------------------------------------------------------
+
+Deno.test("SSE streaming - skips malformed SSE chunks and continues", async () => {
+  const warnMessages: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnMessages.push(args.map(String).join(" "));
+  };
+
+  const stub = stubFetchSSE([
+    { choices: [{ index: 0, delta: { content: "A" }, finish_reason: null }] },
+    "data: {not valid json!!!\n\n",
+    { choices: [{ index: 0, delta: { content: "B" }, finish_reason: null }] },
+    {
+      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+    },
+    "data: [DONE]\n",
+  ]);
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.content, "AB");
+    assertEquals(result.finishReason, "stop");
+
+    const malformedWarn = warnMessages.some((msg) => msg.startsWith("Malformed SSE chunk:"));
+    assertEquals(malformedWarn, true);
+  } finally {
+    stub.restore();
+    console.warn = originalWarn;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SSE 8. Request body includes stream: true
+// ---------------------------------------------------------------------------
+
+Deno.test("SSE streaming - request body includes stream: true", async () => {
+  const stub = stubFetchSSE([
+    { choices: [{ index: 0, delta: { content: "Hi" }, finish_reason: "stop" }] },
+    "data: [DONE]\n",
+  ]);
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    const body = JSON.parse(stub.calls[0].init.body as string);
+    assertEquals(body.stream, true);
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SSE 9. Reasoning content extraction via streaming
+// ---------------------------------------------------------------------------
+
+Deno.test("SSE streaming - assembles reasoning_content from deltas", async () => {
+  const stub = stubFetchSSE([
+    { choices: [{ index: 0, delta: { reasoning_content: "Let me think" }, finish_reason: null }] },
+    { choices: [{ index: 0, delta: { reasoning_content: " step by step..." }, finish_reason: null }] },
+    { choices: [{ index: 0, delta: { content: "The answer is 42" }, finish_reason: null }] },
+    {
+      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    },
+    "data: [DONE]\n",
+  ]);
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Think about this" }],
+    });
+
+    assertEquals(result.content, "The answer is 42");
+    assertEquals(result.reasoning_content, "Let me think step by step...");
+    assertEquals(result.finishReason, "stop");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SSE 10. Usage from separate final chunk (no choices)
+// ---------------------------------------------------------------------------
+
+Deno.test("SSE streaming - captures usage from final usage-only chunk", async () => {
+  const stub = stubFetchSSE([
+    { choices: [{ index: 0, delta: { content: "Done" }, finish_reason: "stop" }] },
+    { usage: { prompt_tokens: 50, completion_tokens: 25, total_tokens: 75 } },
+    "data: [DONE]\n",
+  ]);
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "model");
+    const result = await provider.chat({
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    assertEquals(result.content, "Done");
+    assertEquals(result.usage.promptTokens, 50);
+    assertEquals(result.usage.completionTokens, 25);
+    assertEquals(result.usage.totalTokens, 75);
   } finally {
     stub.restore();
   }

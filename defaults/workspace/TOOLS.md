@@ -140,6 +140,59 @@ write_file(
 )
 ```
 
+## MCP Server Management
+
+MCP (Model Context Protocol) servers extend your capabilities with additional tools. Servers can be **remote** (URL-based, connect over HTTP) or **local** (subprocess via stdio).
+
+**IMPORTANT:** When a user provides a URL like `https://example.com/mcp`, this is a **remote MCP endpoint to connect to** — do NOT install packages, pip install, or download code. Use `containerclaw mcp-add` to connect.
+
+### Add a remote MCP server
+
+```bash
+# Interactive (prompts for name, URL, and auth)
+containerclaw mcp-add
+
+# Non-interactive (no auth)
+containerclaw mcp-add --name "granola" --url "https://mcp.granola.ai/mcp"
+
+# Non-interactive with Bearer token
+containerclaw mcp-add --name "myapi" --url "https://api.example.com/mcp" --auth token --token "sk-xxx"
+```
+
+The command auto-detects the transport (Streamable HTTP or SSE), handles authentication, lists discovered tools, and saves the config. Use `--auth token --token <value>` for API key auth, or `--auth oauth` for browser-based OAuth.
+
+### Manual configuration
+
+Servers are stored in `mcp_servers.json` in the workspace directory. Edit with `exec` or file tools:
+
+```json
+{
+  "my-server": {
+    "url": "https://example.com/mcp"
+  },
+  "authed-server": {
+    "url": "https://api.example.com/mcp",
+    "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+  }
+}
+```
+
+### List connected servers
+
+MCP tools appear with the prefix `mcp_<servername>_<toolname>`. Check your available tools to see connected servers.
+
+---
+
+## Progress Updates
+
+For multi-step tasks (2+ tool-call iterations), the system automatically sends a "Working on this" message to the user so they know work is in progress. After that initial signal, you will receive a system instruction asking you to use the `message` tool to send a brief plan summary (2-3 sentences) before continuing.
+
+- Send the plan summary promptly — the user is waiting for feedback
+- Keep it concise: what you're doing and why
+- Then continue executing normally
+
+Progress updates can be disabled via `agents.progress_updates: false` in config.
+
 ---
 
 ## Adding Custom Tools

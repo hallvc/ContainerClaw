@@ -11,7 +11,7 @@ export interface Tool {
 
 /** Interface for tools that accept channel/chat context. */
 export interface ContextAware {
-  setContext(channel: string, chatId: string): void;
+  setContext(channel: string, chatId: string, metadata?: Record<string, unknown>): void;
 }
 
 /** Type guard to check if a tool implements ContextAware. */
