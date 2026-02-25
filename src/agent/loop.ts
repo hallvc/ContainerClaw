@@ -1,3 +1,4 @@
+import { join } from "@std/path";
 import type { MessageBus } from "../bus/queue.ts";
 import type { InboundMessage } from "../bus/events.ts";
 import { getSessionKey } from "../bus/events.ts";
@@ -16,12 +17,13 @@ import { CronTool } from "./tools/cron.ts";
 import { SpawnTool } from "./tools/spawn.ts";
 import { LearnTool } from "./tools/learn.ts";
 import { connectMcpServers, loadMcpConfig } from "./tools/mcp.ts";
+import { ContainerclawOAuthProvider } from "./tools/mcp_auth.ts";
 import type { CronService } from "../cron/service.ts";
 import { SubagentManager } from "./subagent.ts";
 import { SessionManager } from "../session/manager.ts";
 import type { Session } from "../session/manager.ts";
 import { MemoryStore } from "./memory.ts";
-import { SkillsLoader } from "./skills.ts";
+import { seedWorkspace, SkillsLoader } from "./skills.ts";
 import { ContextBuilder } from "./context.ts";
 import type { Config } from "../config/schema.ts";
 import { resolveModel } from "../config/models.ts";
@@ -105,7 +107,29 @@ export class AgentLoop {
         this._mcpConnected = true;
         return;
       }
-      this._mcpCleanup = await connectMcpServers(mcpServers, this.tools);
+
+      // Build OAuth providers for servers that have OAuth config
+      const authProviders: Record<string, ContainerclawOAuthProvider> = {};
+      for (const [name, cfg] of Object.entries(mcpServers)) {
+        if (cfg.oauth?.tokens) {
+          authProviders[name] = new ContainerclawOAuthProvider(
+            name,
+            this.config.workspace,
+            cfg,
+            (url) => {
+              console.log(
+                `MCP server '${name}': re-authorization needed. Visit: ${url}`,
+              );
+            },
+          );
+        }
+      }
+
+      this._mcpCleanup = await connectMcpServers(
+        mcpServers,
+        this.tools,
+        Object.keys(authProviders).length > 0 ? authProviders : undefined,
+      );
       this._mcpConnected = true;
     } catch (err) {
       console.error("MCP connection failed:", err);
@@ -133,6 +157,13 @@ export class AgentLoop {
 
   async run(): Promise<void> {
     this._running = true;
+
+    // Seed workspace from defaults (only copies files that don't exist)
+    const defaultsDir = join(import.meta.dirname!, "..", "..", "defaults", "workspace");
+    await seedWorkspace(defaultsDir, this.config.workspace).catch((e) =>
+      console.error("Workspace seeding error:", e)
+    );
+
     await this.skills.seedDefaultSkills().catch((e) =>
       console.error("Skill seeding error:", e)
     );

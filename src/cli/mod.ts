@@ -4,9 +4,16 @@ export type ParsedCommand =
   | { command: "gateway" }
   | { command: "agent"; options: { message?: string; session?: string } }
   | { command: "status" }
-  | { command: "onboard" };
+  | { command: "onboard" }
+  | { command: "mcp-add"; options: { url?: string; name?: string } };
 
-const VALID_COMMANDS = ["gateway", "agent", "status", "onboard"] as const;
+const VALID_COMMANDS = [
+  "gateway",
+  "agent",
+  "status",
+  "onboard",
+  "mcp-add",
+] as const;
 type CommandName = typeof VALID_COMMANDS[number];
 
 const HELP_TEXT = `containerclaw - AI agent framework
@@ -18,10 +25,15 @@ Commands:
   agent       Interactive chat mode
   status      Show configuration status
   onboard     Initialize configuration
+  mcp-add     Add a remote MCP server
 
 Agent options:
   -m, --message <msg>     Send a single message and exit
   -s, --session <id>      Session ID (default: cli:repl)
+
+MCP-add options:
+  --url <url>             Server URL
+  --name <name>           Server name
 
 General options:
   -h, --help              Show this help message
@@ -29,7 +41,7 @@ General options:
 
 export function parseCliArgs(args: string[]): ParsedCommand | null {
   const parsed = parseArgs(args, {
-    string: ["message", "session"],
+    string: ["message", "session", "url", "name"],
     boolean: ["help"],
     alias: { m: "message", s: "session", h: "help" },
   });
@@ -43,7 +55,7 @@ export function parseCliArgs(args: string[]): ParsedCommand | null {
 
   if (!VALID_COMMANDS.includes(command as CommandName)) {
     console.error(`Unknown command: ${command}`);
-    console.error('Run with --help for usage information.');
+    console.error("Run with --help for usage information.");
     return null;
   }
 
@@ -52,6 +64,13 @@ export function parseCliArgs(args: string[]): ParsedCommand | null {
     if (parsed.message) options.message = parsed.message;
     if (parsed.session) options.session = parsed.session;
     return { command: "agent", options };
+  }
+
+  if (command === "mcp-add") {
+    const options: { url?: string; name?: string } = {};
+    if (parsed.url) options.url = parsed.url;
+    if (parsed.name) options.name = parsed.name;
+    return { command: "mcp-add", options };
   }
 
   return { command: command as "gateway" | "status" | "onboard" };
@@ -80,6 +99,11 @@ export async function main(): Promise<void> {
     case "onboard": {
       const { runOnboard } = await import("./commands/onboard.ts");
       await runOnboard();
+      break;
+    }
+    case "mcp-add": {
+      const { runMcpAdd } = await import("./commands/mcp_add.ts");
+      await runMcpAdd(parsed.options);
       break;
     }
   }

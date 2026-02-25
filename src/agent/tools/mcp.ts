@@ -5,15 +5,25 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { join } from "@std/path";
 import type { Tool } from "./base.ts";
 import { ToolRegistry } from "./base.ts";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 
 export interface MCPServerConfig {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
   url?: string;
+  headers?: Record<string, string>;
+  transport?: "streamable-http" | "sse";
+  oauth?: {
+    tokens?: Record<string, unknown>;
+    clientInformation?: Record<string, unknown>;
+    codeVerifier?: string;
+  };
 }
 
 /** Default MCP servers included out of the box. */
@@ -32,6 +42,25 @@ export async function loadMcpConfig(
   } catch {
     return { ...DEFAULT_MCP_SERVERS };
   }
+}
+
+/** Save MCP server config to {workspace}/mcp_servers.json, excluding defaults. */
+export async function saveMcpConfig(
+  workspace: string,
+  servers: Record<string, MCPServerConfig>,
+): Promise<void> {
+  const toSave: Record<string, MCPServerConfig> = {};
+  for (const [name, cfg] of Object.entries(servers)) {
+    const defaultCfg = DEFAULT_MCP_SERVERS[name];
+    if (defaultCfg && JSON.stringify(cfg) === JSON.stringify(defaultCfg)) {
+      continue;
+    }
+    toSave[name] = cfg;
+  }
+  await Deno.writeTextFile(
+    join(workspace, "mcp_servers.json"),
+    JSON.stringify(toSave, null, 2) + "\n",
+  );
 }
 
 // deno-lint-ignore no-explicit-any
@@ -79,49 +108,140 @@ export class MCPToolWrapper implements Tool {
   }
 }
 
+/** Build transport options for a URL-based server. */
+function buildTransportOpts(
+  cfg: MCPServerConfig,
+  authProvider?: OAuthClientProvider,
+): { requestInit?: RequestInit; authProvider?: OAuthClientProvider } {
+  const opts: {
+    requestInit?: RequestInit;
+    authProvider?: OAuthClientProvider;
+  } = {};
+  if (cfg.headers && Object.keys(cfg.headers).length > 0) {
+    opts.requestInit = { headers: { ...cfg.headers } };
+  }
+  if (authProvider) {
+    opts.authProvider = authProvider;
+  }
+  return opts;
+}
+
+/** List and register tools from a connected MCP client. */
+async function registerTools(
+  client: MCPClient,
+  serverName: string,
+  registry: ToolRegistry,
+): Promise<number> {
+  const { tools } = await client.listTools();
+  for (const toolDef of tools) {
+    const wrapper = new MCPToolWrapper(client, serverName, toolDef);
+    registry.register(wrapper);
+    console.log(
+      `MCP: registered tool '${wrapper.name}' from server '${serverName}'`,
+    );
+  }
+  return tools.length;
+}
+
+/**
+ * Connect a URL-based MCP server with transport auto-detection.
+ * Tries Streamable HTTP first, falls back to SSE on failure.
+ */
+async function connectUrlServer(
+  name: string,
+  cfg: MCPServerConfig,
+  registry: ToolRegistry,
+  authProvider?: OAuthClientProvider,
+): Promise<{ client: MCPClient; cleanup: () => Promise<void> }> {
+  const url = new URL(cfg.url!);
+  const opts = buildTransportOpts(cfg, authProvider);
+
+  // If transport is forced to SSE, use it directly
+  if (cfg.transport === "sse") {
+    const transport = new SSEClientTransport(url, opts);
+    const client = new Client({ name: "containerclaw", version: "1.0.0" });
+    await client.connect(transport);
+    await registerTools(client, name, registry);
+    return { client, cleanup: () => client.close() };
+  }
+
+  // Try Streamable HTTP first
+  try {
+    const transport = new StreamableHTTPClientTransport(url, opts);
+    const client = new Client({ name: "containerclaw", version: "1.0.0" });
+    await client.connect(transport);
+    await registerTools(client, name, registry);
+    return { client, cleanup: () => client.close() };
+  } catch (err) {
+    // Don't fall back on auth errors -- those need user action
+    if (err instanceof UnauthorizedError) throw err;
+
+    // If transport was explicitly set, don't fall back
+    if (cfg.transport === "streamable-http") throw err;
+
+    // Fall back to SSE transport
+    console.log(
+      `MCP server '${name}': Streamable HTTP failed, trying SSE fallback...`,
+    );
+    const sseTransport = new SSEClientTransport(url, opts);
+    const sseClient = new Client({ name: "containerclaw", version: "1.0.0" });
+    await sseClient.connect(sseTransport);
+    await registerTools(sseClient, name, registry);
+    return { client: sseClient, cleanup: () => sseClient.close() };
+  }
+}
+
 /** Connect to configured MCP servers and register their tools. */
 export async function connectMcpServers(
   mcpServers: Record<string, MCPServerConfig>,
   registry: ToolRegistry,
+  authProviders?: Record<string, OAuthClientProvider>,
 ): Promise<Array<() => Promise<void>>> {
   const cleanups: Array<() => Promise<void>> = [];
 
   for (const [name, cfg] of Object.entries(mcpServers)) {
     try {
-      let transport;
       if (cfg.command) {
-        transport = new StdioClientTransport({
+        // Stdio transport (local subprocess)
+        const transport = new StdioClientTransport({
           command: cfg.command,
           args: cfg.args ?? [],
           env: cfg.env,
         });
+        const client = new Client({ name: "containerclaw", version: "1.0.0" });
+        await client.connect(transport);
+        const count = await registerTools(client, name, registry);
+        console.log(
+          `MCP server '${name}': connected, ${count} tools registered`,
+        );
+        cleanups.push(() => client.close());
       } else if (cfg.url) {
-        transport = new StreamableHTTPClientTransport(new URL(cfg.url));
+        // URL transport (remote server) with auto-detection and auth
+        const authProvider = authProviders?.[name];
+        const { cleanup } = await connectUrlServer(
+          name,
+          cfg,
+          registry,
+          authProvider,
+        );
+        cleanups.push(cleanup);
       } else {
         console.warn(
           `MCP server '${name}': no command or url configured, skipping`,
         );
-        continue;
       }
-
-      const client = new Client({ name: "containerclaw", version: "1.0.0" });
-      await client.connect(transport);
-
-      const { tools } = await client.listTools();
-      for (const toolDef of tools) {
-        const wrapper = new MCPToolWrapper(client, name, toolDef);
-        registry.register(wrapper);
-        console.log(`MCP: registered tool '${wrapper.name}' from server '${name}'`);
-      }
-
-      console.log(
-        `MCP server '${name}': connected, ${tools.length} tools registered`,
-      );
-      cleanups.push(() => client.close());
     } catch (err) {
-      console.error(`MCP server '${name}': failed to connect:`, err);
+      if (err instanceof UnauthorizedError) {
+        console.error(
+          `MCP server '${name}': authentication required. Run 'containerclaw mcp-add' to configure auth.`,
+        );
+      } else {
+        console.error(`MCP server '${name}': failed to connect:`, err);
+      }
     }
   }
 
   return cleanups;
 }
+
+export { UnauthorizedError };

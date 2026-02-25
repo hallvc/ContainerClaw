@@ -16,8 +16,10 @@ bridge/
 containerclaw/
 tests/
 case/
-workspace/
 *.md
+workspace/
+!defaults/
+!defaults/**
 *.png
 *.gif
 *.sh

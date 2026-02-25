@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { ToolRegistry } from "./base.ts";
-import { MCPToolWrapper, loadMcpConfig } from "./mcp.ts";
+import { MCPToolWrapper, loadMcpConfig, saveMcpConfig } from "./mcp.ts";
 import { join } from "@std/path";
 
 // Mock client that records callTool invocations
@@ -120,4 +120,106 @@ Deno.test("loadMcpConfig - merges user config with defaults", async () => {
   Deno.writeTextFileSync(join(tmpDir, "mcp_servers.json"), JSON.stringify(config));
   const result = await loadMcpConfig(tmpDir);
   assertEquals(result, { exa: { url: "https://mcp.exa.ai/mcp" }, ...config });
+});
+
+// --- loadMcpConfig with new fields ---
+
+Deno.test("loadMcpConfig - loads config with headers field", async () => {
+  const tmpDir = Deno.makeTempDirSync();
+  const config = {
+    remote: {
+      url: "https://example.com/mcp",
+      headers: { Authorization: "Bearer test-token" },
+    },
+  };
+  Deno.writeTextFileSync(join(tmpDir, "mcp_servers.json"), JSON.stringify(config));
+  const result = await loadMcpConfig(tmpDir);
+  assertEquals(result.remote.headers, { Authorization: "Bearer test-token" });
+});
+
+Deno.test("loadMcpConfig - loads config with transport field", async () => {
+  const tmpDir = Deno.makeTempDirSync();
+  const config = {
+    remote: {
+      url: "https://example.com/mcp",
+      transport: "sse",
+    },
+  };
+  Deno.writeTextFileSync(join(tmpDir, "mcp_servers.json"), JSON.stringify(config));
+  const result = await loadMcpConfig(tmpDir);
+  assertEquals(result.remote.transport, "sse");
+});
+
+Deno.test("loadMcpConfig - loads config with oauth field", async () => {
+  const tmpDir = Deno.makeTempDirSync();
+  const config = {
+    remote: {
+      url: "https://example.com/mcp",
+      oauth: {
+        tokens: { access_token: "abc", token_type: "Bearer" },
+        clientInformation: { client_id: "test-client" },
+      },
+    },
+  };
+  Deno.writeTextFileSync(join(tmpDir, "mcp_servers.json"), JSON.stringify(config));
+  const result = await loadMcpConfig(tmpDir);
+  assertEquals(result.remote.oauth?.tokens?.access_token, "abc");
+  assertEquals(result.remote.oauth?.clientInformation?.client_id, "test-client");
+});
+
+// --- saveMcpConfig tests ---
+
+Deno.test("saveMcpConfig - writes valid JSON to disk", async () => {
+  const tmpDir = Deno.makeTempDirSync();
+  const servers = {
+    myserver: { url: "https://example.com/mcp", headers: { "X-Key": "val" } },
+  };
+  await saveMcpConfig(tmpDir, servers);
+  const text = Deno.readTextFileSync(join(tmpDir, "mcp_servers.json"));
+  const parsed = JSON.parse(text);
+  assertEquals(parsed.myserver.url, "https://example.com/mcp");
+  assertEquals(parsed.myserver.headers, { "X-Key": "val" });
+});
+
+Deno.test("saveMcpConfig - excludes default servers that haven't changed", async () => {
+  const tmpDir = Deno.makeTempDirSync();
+  const servers = {
+    exa: { url: "https://mcp.exa.ai/mcp" },
+    custom: { url: "https://custom.example.com/mcp" },
+  };
+  await saveMcpConfig(tmpDir, servers);
+  const text = Deno.readTextFileSync(join(tmpDir, "mcp_servers.json"));
+  const parsed = JSON.parse(text);
+  assertEquals(parsed.exa, undefined);
+  assertEquals(parsed.custom.url, "https://custom.example.com/mcp");
+});
+
+Deno.test("saveMcpConfig - preserves modified default servers", async () => {
+  const tmpDir = Deno.makeTempDirSync();
+  const servers = {
+    exa: { url: "https://mcp.exa.ai/mcp", headers: { "X-Key": "custom" } },
+  };
+  await saveMcpConfig(tmpDir, servers);
+  const text = Deno.readTextFileSync(join(tmpDir, "mcp_servers.json"));
+  const parsed = JSON.parse(text);
+  assertEquals(parsed.exa.headers, { "X-Key": "custom" });
+});
+
+Deno.test("saveMcpConfig - preserves existing entries when updating one", async () => {
+  const tmpDir = Deno.makeTempDirSync();
+  const initial = {
+    server1: { url: "https://s1.example.com/mcp" },
+    server2: { url: "https://s2.example.com/mcp" },
+  };
+  await saveMcpConfig(tmpDir, initial);
+
+  const loaded = await loadMcpConfig(tmpDir);
+  loaded.server3 = { url: "https://s3.example.com/mcp" };
+  await saveMcpConfig(tmpDir, loaded);
+
+  const text = Deno.readTextFileSync(join(tmpDir, "mcp_servers.json"));
+  const parsed = JSON.parse(text);
+  assertEquals(parsed.server1.url, "https://s1.example.com/mcp");
+  assertEquals(parsed.server2.url, "https://s2.example.com/mcp");
+  assertEquals(parsed.server3.url, "https://s3.example.com/mcp");
 });

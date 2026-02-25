@@ -1,6 +1,9 @@
 .assets
 .env
 .omc/
+data/
+!data/.gitkeep
+workspace/
 *.pyc
 dist/
 build/

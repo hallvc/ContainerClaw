@@ -27,10 +27,6 @@ services:
       - TELEGRAM_ALLOW_FROM=${TELEGRAM_ALLOW_FROM:-}
     volumes:
       # Persistent data: sessions, memory, cron jobs
-      - containerclaw-data:/data
+      - ./data:/data
       # Workspace for the agent to operate in
-      - containerclaw-workspace:/workspace
-
-volumes:
-  containerclaw-data:
-  containerclaw-workspace:
+      - ./workspace:/workspace

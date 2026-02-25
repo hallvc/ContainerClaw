@@ -287,3 +287,43 @@ export class SkillsLoader {
     }
   }
 }
+
+/**
+ * Seed workspace from defaults directory.
+ * Copies files that don't already exist (preserves user customizations).
+ * Skips the skills/ subdirectory since seedDefaultSkills() handles that.
+ */
+export async function seedWorkspace(
+  defaultsDir: string,
+  targetDir: string,
+): Promise<void> {
+  try {
+    await Deno.stat(defaultsDir);
+  } catch {
+    return; // No defaults dir (e.g., in tests)
+  }
+  await Deno.mkdir(targetDir, { recursive: true });
+  await seedDir(defaultsDir, targetDir);
+}
+
+async function seedDir(src: string, dest: string): Promise<void> {
+  for await (const entry of Deno.readDir(src)) {
+    // Skip skills — handled by seedDefaultSkills()
+    if (entry.name === "skills") continue;
+
+    const srcPath = join(src, entry.name);
+    const destPath = join(dest, entry.name);
+
+    if (entry.isDirectory) {
+      await Deno.mkdir(destPath, { recursive: true });
+      await seedDir(srcPath, destPath);
+    } else {
+      try {
+        await Deno.stat(destPath);
+        // Already exists — don't overwrite
+      } catch {
+        await Deno.copyFile(srcPath, destPath);
+      }
+    }
+  }
+}
