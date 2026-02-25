@@ -33,7 +33,7 @@ async function readFileConfig(path: string): Promise<Record<string, unknown>> {
 function defined(obj: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (v !== undefined) result[k] = v;
+    if (v !== undefined && v !== "") result[k] = v;
   }
   return result;
 }

@@ -10,5 +10,5 @@ import type { Config, ModelRole } from "./schema.ts";
  */
 export function resolveModel(config: Config, role: ModelRole): string {
   const models = config.agents.models;
-  return models[role] ?? models.default ?? config.openrouter.default_model;
+  return models[role] || models.default || config.openrouter.default_model;
 }

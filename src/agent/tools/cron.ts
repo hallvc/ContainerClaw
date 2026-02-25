@@ -41,6 +41,12 @@ export class CronTool implements Tool {
         description:
           "ISO datetime for one-time execution (e.g. '2026-02-12T10:30:00').",
       },
+      mode: {
+        type: "string",
+        enum: ["reminder", "task"],
+        description:
+          "Job mode: 'reminder' sends message directly to user (default), 'task' runs message through the agent for execution.",
+      },
       job_id: {
         type: "string",
         description: "Job ID (for remove, enable, disable).",
@@ -108,6 +114,7 @@ export class CronTool implements Tool {
     }
 
     const timezone = args.timezone as string | undefined;
+    const mode = (args.mode as "reminder" | "task" | undefined) ?? "reminder";
     const result = await this.cronService.addJob({
       name: message.length <= 30 ? message : (message.slice(0, 30).replace(/\s+\S*$/, "") || message.slice(0, 30)),
       schedule,
@@ -115,6 +122,7 @@ export class CronTool implements Tool {
       channel,
       chatId,
       enabled: true,
+      mode,
       ...(timezone ? { timezone } : {}),
     });
     if ("error" in result) return `Error: ${result.error}`;

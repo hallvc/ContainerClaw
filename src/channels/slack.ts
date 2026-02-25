@@ -62,8 +62,13 @@ export class SlackChannel extends BaseChannel {
       console.warn("Slack socket disconnected");
     });
 
-    this.socketClient.on("slack_event", async ({ ack, event }) => {
+    this.socketClient.on("slack_event", async ({ ack, body }) => {
       try {
+        const event = body?.event;
+        if (!event) {
+          await ack();
+          return;
+        }
         await this.onSocketEvent(ack, event);
       } catch (e) {
         console.error(`Slack event handler error: ${e}`);
@@ -105,6 +110,20 @@ export class SlackChannel extends BaseChannel {
         text: this.toMrkdwn(msg.content),
         thread_ts: useThread ? threadTs : undefined,
       });
+
+      // Remove :eyes: reaction now that we've responded (best-effort)
+      const messageTs = slackMeta.message_ts as string | undefined;
+      if (messageTs) {
+        try {
+          await this.webClient.reactions.remove({
+            channel: msg.chatId,
+            name: "eyes",
+            timestamp: messageTs,
+          });
+        } catch (e) {
+          console.debug(`Slack reactions.remove failed: ${e}`);
+        }
+      }
     } catch (e) {
       console.error(`Error sending Slack message: ${e}`);
     }
@@ -123,8 +142,9 @@ export class SlackChannel extends BaseChannel {
 
     const eventType = event.type as string | undefined;
 
-    // Handle app mentions or plain messages only
-    if (eventType !== "message" && eventType !== "app_mention") {
+    // Handle plain messages only; drop app_mention to avoid double-processing
+    // (Slack sends both message and app_mention for @-mentions in channels)
+    if (eventType !== "message") {
       return;
     }
 
@@ -139,16 +159,7 @@ export class SlackChannel extends BaseChannel {
       return;
     }
 
-    // Avoid double-processing: Slack sends both `message` and `app_mention`
-    // for mentions in channels. Prefer `app_mention`.
     const text = (event.text as string) ?? "";
-    if (
-      eventType === "message" &&
-      this.botUserId &&
-      text.includes(`<@${this.botUserId}>`)
-    ) {
-      return;
-    }
 
     console.debug(
       `Slack event: type=${eventType} subtype=${event.subtype} user=${senderId} channel=${chatId} channel_type=${event.channel_type} text=${text.slice(0, 80)}`,
@@ -166,7 +177,7 @@ export class SlackChannel extends BaseChannel {
 
     if (
       channelType !== "im" &&
-      !this.shouldRespondInChannel(eventType, text, chatId)
+      !this.shouldRespondInChannel(text, chatId)
     ) {
       return;
     }
@@ -196,6 +207,7 @@ export class SlackChannel extends BaseChannel {
           event,
           thread_ts: threadTs,
           channel_type: channelType,
+          message_ts: event.ts as string,
         },
       },
     });
@@ -223,18 +235,11 @@ export class SlackChannel extends BaseChannel {
     return true;
   }
 
-  private shouldRespondInChannel(
-    eventType: string,
-    text: string,
-    chatId: string,
-  ): boolean {
+  private shouldRespondInChannel(text: string, chatId: string): boolean {
     if (this.config.groupPolicy === "open") {
       return true;
     }
     if (this.config.groupPolicy === "mention") {
-      if (eventType === "app_mention") {
-        return true;
-      }
       return (
         this.botUserId !== null && text.includes(`<@${this.botUserId}>`)
       );

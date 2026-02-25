@@ -17,6 +17,7 @@ export interface CronJob {
   lastRun: string | null;
   nextRun: string | null;
   timezone?: string;
+  mode?: "reminder" | "task";
 }
 
 type JobCallback = (job: CronJob) => Promise<void>;

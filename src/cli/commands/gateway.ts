@@ -116,15 +116,22 @@ export async function runGateway(): Promise<void> {
   cron.setCallback(async (job) => {
     console.log(`Cron executing: ${job.name}`);
     try {
-      const response = await agent.processDirect(
-        job.channel,
-        job.chatId,
-        job.command,
-      );
+      let content: string;
+      if (job.mode === "task") {
+        // Task mode: run through the agent loop for execution
+        content = await agent.processDirect(
+          job.channel,
+          job.chatId,
+          job.command,
+        );
+      } else {
+        // Reminder mode (default): send message directly, no LLM
+        content = job.command;
+      }
       await bus.publishOutbound({
         channel: job.channel,
         chatId: job.chatId,
-        content: response,
+        content,
         media: [],
         metadata: {},
       });

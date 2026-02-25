@@ -114,22 +114,20 @@ Deno.test("SlackChannel - shouldRespondInChannel: open policy returns true", () 
   const bus = new MessageBus();
   const channel = new SlackChannel(makeConfig({ groupPolicy: "open" }), bus);
   const result = (channel as any).shouldRespondInChannel(
-    "message",
     "hello",
     "C_CHAN",
   );
   assertEquals(result, true);
 });
 
-Deno.test("SlackChannel - shouldRespondInChannel: mention policy + app_mention event returns true", () => {
+Deno.test("SlackChannel - shouldRespondInChannel: mention policy + no bot mention returns false", () => {
   const bus = new MessageBus();
   const channel = new SlackChannel(makeConfig({ groupPolicy: "mention" }), bus);
   const result = (channel as any).shouldRespondInChannel(
-    "app_mention",
     "hello",
     "C_CHAN",
   );
-  assertEquals(result, true);
+  assertEquals(result, false);
 });
 
 Deno.test("SlackChannel - shouldRespondInChannel: mention policy + text with bot mention returns true", () => {
@@ -137,7 +135,6 @@ Deno.test("SlackChannel - shouldRespondInChannel: mention policy + text with bot
   const channel = new SlackChannel(makeConfig({ groupPolicy: "mention" }), bus);
   (channel as any).botUserId = "U_BOT";
   const result = (channel as any).shouldRespondInChannel(
-    "message",
     "hey <@U_BOT> do stuff",
     "C_CHAN",
   );
@@ -149,7 +146,6 @@ Deno.test("SlackChannel - shouldRespondInChannel: mention policy + no mention re
   const channel = new SlackChannel(makeConfig({ groupPolicy: "mention" }), bus);
   (channel as any).botUserId = "U_BOT";
   const result = (channel as any).shouldRespondInChannel(
-    "message",
     "just chatting",
     "C_CHAN",
   );
@@ -161,7 +157,6 @@ Deno.test("SlackChannel - shouldRespondInChannel: mention policy + no botUserId 
   const channel = new SlackChannel(makeConfig({ groupPolicy: "mention" }), bus);
   // botUserId is null by default
   const result = (channel as any).shouldRespondInChannel(
-    "message",
     "just chatting",
     "C_CHAN",
   );
@@ -175,7 +170,6 @@ Deno.test("SlackChannel - shouldRespondInChannel: allowlist policy + chatId in l
     bus,
   );
   const result = (channel as any).shouldRespondInChannel(
-    "message",
     "hello",
     "C_CHAN",
   );
@@ -189,7 +183,6 @@ Deno.test("SlackChannel - shouldRespondInChannel: allowlist policy + chatId not 
     bus,
   );
   const result = (channel as any).shouldRespondInChannel(
-    "message",
     "hello",
     "C_CHAN",
   );
@@ -289,7 +282,7 @@ Deno.test("SlackChannel - onSocketEvent: calls ack immediately", async () => {
   assertEquals(ackCalled, true);
 });
 
-Deno.test("SlackChannel - onSocketEvent: ignores events that are not message or app_mention", async () => {
+Deno.test("SlackChannel - onSocketEvent: ignores events that are not message type", async () => {
   const bus = new MessageBus();
   const channel = new SlackChannel(makeConfig(), bus);
   const ack = async () => {};
@@ -325,10 +318,16 @@ Deno.test("SlackChannel - onSocketEvent: ignores own bot messages", async () => 
   assertEquals(bus.inboundSize, 0);
 });
 
-Deno.test("SlackChannel - onSocketEvent: dedup - ignores message event with bot mention in text", async () => {
+Deno.test("SlackChannel - onSocketEvent: processes message with bot mention in channel", async () => {
   const bus = new MessageBus();
-  const channel = new SlackChannel(makeConfig(), bus);
+  const channel = new SlackChannel(
+    makeConfig({ groupPolicy: "mention" }),
+    bus,
+  );
   (channel as any).botUserId = "U_BOT";
+  (channel as any).webClient = {
+    reactions: { add: async () => {} },
+  };
   const ack = async () => {};
   await (channel as any).onSocketEvent(ack, {
     type: "message",
@@ -338,8 +337,9 @@ Deno.test("SlackChannel - onSocketEvent: dedup - ignores message event with bot 
     text: "<@U_BOT> hello",
     ts: "1234.5678",
   });
-  // Should be skipped because it's a "message" with bot mention (prefer app_mention)
-  assertEquals(bus.inboundSize, 0);
+  assertEquals(bus.inboundSize, 1);
+  const msg = await bus.consumeInbound();
+  assertEquals(msg.content, "hello");
 });
 
 Deno.test("SlackChannel - onSocketEvent: processes valid DM and publishes to bus", async () => {
@@ -372,18 +372,13 @@ Deno.test("SlackChannel - onSocketEvent: processes valid DM and publishes to bus
   assertEquals(msg.content, "hello bot");
 });
 
-Deno.test("SlackChannel - onSocketEvent: processes app_mention and publishes to bus", async () => {
+Deno.test("SlackChannel - onSocketEvent: ignores app_mention events (dedup with message)", async () => {
   const bus = new MessageBus();
   const channel = new SlackChannel(
     makeConfig({ groupPolicy: "mention" }),
     bus,
   );
   (channel as any).botUserId = "U_BOT";
-  (channel as any).webClient = {
-    reactions: {
-      add: async () => {},
-    },
-  };
   const ack = async () => {};
   await (channel as any).onSocketEvent(ack, {
     type: "app_mention",
@@ -393,9 +388,7 @@ Deno.test("SlackChannel - onSocketEvent: processes app_mention and publishes to 
     text: "<@U_BOT> do something",
     ts: "1234.5678",
   });
-  assertEquals(bus.inboundSize, 1);
-  const msg = await bus.consumeInbound();
-  assertEquals(msg.content, "do something");
+  assertEquals(bus.inboundSize, 0);
 });
 
 Deno.test("SlackChannel - onSocketEvent: adds eyes reaction (best-effort)", async () => {
