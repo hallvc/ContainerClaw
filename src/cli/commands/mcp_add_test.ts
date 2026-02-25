@@ -41,3 +41,66 @@ Deno.test("parseCliArgs - 'mcp-add --name' returns mcp-add with name option", ()
     options: { name: "granola" },
   });
 });
+
+Deno.test("parseCliArgs - 'mcp-add --token' returns mcp-add with token option", () => {
+  const result = parseCliArgs([
+    "mcp-add",
+    "--name",
+    "myapi",
+    "--url",
+    "https://api.example.com/mcp",
+    "--token",
+    "sk-test123",
+  ]);
+  assertEquals(result, {
+    command: "mcp-add",
+    options: {
+      name: "myapi",
+      url: "https://api.example.com/mcp",
+      token: "sk-test123",
+    },
+  });
+});
+
+Deno.test("parseCliArgs - 'mcp-add --auth token --token' returns both auth options", () => {
+  const result = parseCliArgs([
+    "mcp-add",
+    "--name",
+    "myapi",
+    "--url",
+    "https://api.example.com/mcp",
+    "--auth",
+    "token",
+    "--token",
+    "sk-test123",
+  ]);
+  assertEquals(result, {
+    command: "mcp-add",
+    options: {
+      name: "myapi",
+      url: "https://api.example.com/mcp",
+      auth: "token",
+      token: "sk-test123",
+    },
+  });
+});
+
+Deno.test("parseCliArgs - 'mcp-add --auth oauth' returns auth option", () => {
+  const result = parseCliArgs([
+    "mcp-add",
+    "--name",
+    "oauthserver",
+    "--url",
+    "https://oauth.example.com/mcp",
+    "--auth",
+    "oauth",
+  ]);
+  assertEquals(result, {
+    command: "mcp-add",
+    options: {
+      name: "oauthserver",
+      url: "https://oauth.example.com/mcp",
+      auth: "oauth",
+    },
+  });
+});

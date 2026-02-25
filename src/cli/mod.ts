@@ -5,7 +5,7 @@ export type ParsedCommand =
   | { command: "agent"; options: { message?: string; session?: string } }
   | { command: "status" }
   | { command: "onboard" }
-  | { command: "mcp-add"; options: { url?: string; name?: string } };
+  | { command: "mcp-add"; options: { url?: string; name?: string; token?: string; auth?: string } };
 
 const VALID_COMMANDS = [
   "gateway",
@@ -34,6 +34,8 @@ Agent options:
 MCP-add options:
   --url <url>             Server URL
   --name <name>           Server name
+  --token <token>         Bearer token for authentication
+  --auth <type>           Auth type: oauth or token
 
 General options:
   -h, --help              Show this help message
@@ -41,7 +43,7 @@ General options:
 
 export function parseCliArgs(args: string[]): ParsedCommand | null {
   const parsed = parseArgs(args, {
-    string: ["message", "session", "url", "name"],
+    string: ["message", "session", "url", "name", "token", "auth"],
     boolean: ["help"],
     alias: { m: "message", s: "session", h: "help" },
   });
@@ -67,9 +69,11 @@ export function parseCliArgs(args: string[]): ParsedCommand | null {
   }
 
   if (command === "mcp-add") {
-    const options: { url?: string; name?: string } = {};
+    const options: { url?: string; name?: string; token?: string; auth?: string } = {};
     if (parsed.url) options.url = parsed.url;
     if (parsed.name) options.name = parsed.name;
+    if (parsed.token) options.token = parsed.token;
+    if (parsed.auth) options.auth = parsed.auth;
     return { command: "mcp-add", options };
   }
 

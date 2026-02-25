@@ -24,6 +24,8 @@ import { exists } from "@std/fs";
 export interface McpAddOptions {
   url?: string;
   name?: string;
+  token?: string;
+  auth?: string;
 }
 
 /** Resolve workspace directory (same logic as config loader). */
@@ -136,17 +138,17 @@ export async function runMcpAdd(options: McpAddOptions): Promise<void> {
     console.log("  Authentication required.");
   }
 
-  // Ask what type of auth
-  console.log("\nAuthentication options:");
-  console.log("  1. OAuth (browser-based authorization)");
-  console.log("  2. API key / Bearer token");
-  const authChoice = prompt("Choose auth method [1/2]:") ?? "1";
+  // Determine auth method: CLI flags > interactive prompt
+  const authChoice = options.auth ??
+    (options.token ? "token" : null) ??
+    prompt("Auth method? 1=OAuth, 2=Token [1/2]:") ?? "1";
+  const useToken = authChoice === "2" || authChoice === "token";
 
-  if (authChoice.trim() === "2") {
+  if (useToken) {
     // Bearer token / API key auth
-    const token = prompt("Enter your API key or Bearer token:") ?? "";
+    const token = options.token ?? prompt("Enter your API key or Bearer token:") ?? "";
     if (!token.trim()) {
-      console.error("Token is required.");
+      console.error("Token is required. Pass --token <value> or enter interactively.");
       return;
     }
 
