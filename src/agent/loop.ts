@@ -21,6 +21,7 @@ import type { MCPAuthPending } from "./tools/mcp.ts";
 import { UploadFileTool } from "./tools/upload.ts";
 import { ImageGenTool } from "./tools/image_gen.ts";
 import { TtsTool } from "./tools/tts.ts";
+import { OpenRouterClient } from "../providers/openrouter_client.ts";
 import { StorageClient } from "../storage/s3.ts";
 import type { Storage } from "../storage/base.ts";
 import { ContainerclawOAuthProvider, openBrowser } from "./tools/mcp_auth.ts";
@@ -203,15 +204,15 @@ export class AgentLoop {
       await storageClient.ensureBucket();
       this.storage = storageClient;
 
-      const apiKey = this.config.openrouter.api_key;
+      const orClient = new OpenRouterClient(this.config.openrouter.api_key);
       this.tools.register(new UploadFileTool(this.config.workspace, this.storage));
       this.tools.register(new ImageGenTool(
-        apiKey,
+        orClient,
         resolveModel(this.config, "image"),
         this.storage,
       ));
       this.tools.register(new TtsTool(
-        apiKey,
+        orClient,
         resolveModel(this.config, "tts"),
         this.storage,
       ));

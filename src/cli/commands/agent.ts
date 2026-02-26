@@ -1,6 +1,7 @@
 import { loadConfig } from "../../config/loader.ts";
 import { resolveModel } from "../../config/models.ts";
 import { MessageBus } from "../../bus/queue.ts";
+import { OpenRouterClient } from "../../providers/openrouter_client.ts";
 import { OpenRouterProvider } from "../../providers/openrouter.ts";
 import { AgentLoop } from "../../agent/loop.ts";
 import { CronService } from "../../cron/service.ts";
@@ -54,8 +55,9 @@ export async function runAgent(options: AgentOptions = {}): Promise<void> {
 
   // Create minimal service stack — no channels, no heartbeat
   const bus = new MessageBus();
+  const orClient = new OpenRouterClient(config.openrouter.api_key);
   const provider = new OpenRouterProvider(
-    config.openrouter.api_key,
+    orClient,
     config.openrouter.default_model,
   );
   const cron = new CronService(config.data_dir, {

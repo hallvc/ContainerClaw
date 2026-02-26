@@ -1,4 +1,5 @@
 import { assertEquals } from "@std/assert";
+import { OpenRouterClient } from "./openrouter_client.ts";
 import { transcribe } from "./transcription.ts";
 
 // ---------------------------------------------------------------------------
@@ -47,6 +48,10 @@ function stubFetchThrow(
 
 const fakeAudio = new Blob([new Uint8Array([0x4f, 0x67, 0x67, 0x53])]); // OGG magic bytes
 
+function makeClient(apiKey = "sk-or-test"): OpenRouterClient {
+  return new OpenRouterClient(apiKey);
+}
+
 // ---------------------------------------------------------------------------
 // 1. Happy path
 // ---------------------------------------------------------------------------
@@ -63,7 +68,7 @@ Deno.test("transcribe - returns transcribed text on success", async () => {
   ]);
 
   try {
-    const result = await transcribe("https://example.com/audio.ogg", "sk-or-test");
+    const result = await transcribe("https://example.com/audio.ogg", makeClient());
     assertEquals(result, "hello world");
   } finally {
     stub.restore();
@@ -71,23 +76,7 @@ Deno.test("transcribe - returns transcribed text on success", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Empty API key
-// ---------------------------------------------------------------------------
-
-Deno.test("transcribe - returns empty string when API key is empty", async () => {
-  const stub = stubFetchSequence([]);
-
-  try {
-    const result = await transcribe("https://example.com/audio.ogg", "");
-    assertEquals(result, "");
-    assertEquals(stub.calls.length, 0);
-  } finally {
-    stub.restore();
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 3. Audio download HTTP error
+// 2. Audio download HTTP error
 // ---------------------------------------------------------------------------
 
 Deno.test("transcribe - returns empty string when audio download fails", async () => {
@@ -96,7 +85,7 @@ Deno.test("transcribe - returns empty string when audio download fails", async (
   ]);
 
   try {
-    const result = await transcribe("https://example.com/audio.ogg", "sk-or-test");
+    const result = await transcribe("https://example.com/audio.ogg", makeClient());
     assertEquals(result, "");
     assertEquals(stub.calls.length, 1);
   } finally {
@@ -105,14 +94,14 @@ Deno.test("transcribe - returns empty string when audio download fails", async (
 });
 
 // ---------------------------------------------------------------------------
-// 4. Audio download network error
+// 3. Audio download network error
 // ---------------------------------------------------------------------------
 
 Deno.test("transcribe - returns empty string on network error", async () => {
   const stub = stubFetchThrow(new TypeError("Failed to fetch"));
 
   try {
-    const result = await transcribe("https://example.com/audio.ogg", "sk-or-test");
+    const result = await transcribe("https://example.com/audio.ogg", makeClient());
     assertEquals(result, "");
   } finally {
     stub.restore();
@@ -120,26 +109,27 @@ Deno.test("transcribe - returns empty string on network error", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. OpenRouter API HTTP error
+// 4. OpenRouter API HTTP error
 // ---------------------------------------------------------------------------
 
 Deno.test("transcribe - returns empty string when OpenRouter API returns error", async () => {
+  // Client retries 500s (3 attempts), so: 1 audio download + 3 API retries = 4 calls
   const stub = stubFetchSequence([
     { body: fakeAudio, status: 200 },
     { body: JSON.stringify({ error: { message: "Internal Server Error" } }), status: 500 },
   ]);
 
   try {
-    const result = await transcribe("https://example.com/audio.ogg", "sk-or-test");
+    const result = await transcribe("https://example.com/audio.ogg", makeClient());
     assertEquals(result, "");
-    assertEquals(stub.calls.length, 2);
+    assertEquals(stub.calls.length, 4);
   } finally {
     stub.restore();
   }
 });
 
 // ---------------------------------------------------------------------------
-// 6. OpenRouter API malformed JSON
+// 5. OpenRouter API malformed JSON
 // ---------------------------------------------------------------------------
 
 Deno.test("transcribe - returns empty string on malformed JSON response", async () => {
@@ -149,7 +139,7 @@ Deno.test("transcribe - returns empty string on malformed JSON response", async 
   ]);
 
   try {
-    const result = await transcribe("https://example.com/audio.ogg", "sk-or-test");
+    const result = await transcribe("https://example.com/audio.ogg", makeClient());
     assertEquals(result, "");
   } finally {
     stub.restore();
@@ -157,7 +147,7 @@ Deno.test("transcribe - returns empty string on malformed JSON response", async 
 });
 
 // ---------------------------------------------------------------------------
-// 7. OpenRouter API empty/null content
+// 6. OpenRouter API empty/null content
 // ---------------------------------------------------------------------------
 
 Deno.test("transcribe - returns empty string when content is null", async () => {
@@ -172,7 +162,7 @@ Deno.test("transcribe - returns empty string when content is null", async () => 
   ]);
 
   try {
-    const result = await transcribe("https://example.com/audio.ogg", "sk-or-test");
+    const result = await transcribe("https://example.com/audio.ogg", makeClient());
     assertEquals(result, "");
   } finally {
     stub.restore();
@@ -180,7 +170,7 @@ Deno.test("transcribe - returns empty string when content is null", async () => 
 });
 
 // ---------------------------------------------------------------------------
-// 8. Correct OpenRouter endpoint, auth, and body structure
+// 7. Correct OpenRouter endpoint, auth, and body structure
 // ---------------------------------------------------------------------------
 
 Deno.test("transcribe - sends correct URL, auth header, and input_audio body to OpenRouter", async () => {
@@ -195,7 +185,7 @@ Deno.test("transcribe - sends correct URL, auth header, and input_audio body to 
   ]);
 
   try {
-    await transcribe("https://example.com/voice/file_0.oga", "sk-or-my-key");
+    await transcribe("https://example.com/voice/file_0.oga", makeClient("sk-or-my-key"));
 
     // First call: audio download
     assertEquals(stub.calls[0].url, "https://example.com/voice/file_0.oga");

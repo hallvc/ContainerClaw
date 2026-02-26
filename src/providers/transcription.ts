@@ -6,26 +6,21 @@
 
 import { encodeBase64 } from "@std/encoding/base64";
 import { detectAudioFormat } from "./media.ts";
+import type { OpenRouterClient } from "./openrouter_client.ts";
 
-const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const TRANSCRIPTION_MODEL = "google/gemini-2.5-flash";
 
 /**
  * Download audio from a URL and transcribe it via OpenRouter's chat completions API.
  *
  * @param audioUrl - URL to the audio file (e.g. Telegram file URL)
- * @param apiKey - OpenRouter API key
+ * @param client - OpenRouterClient instance
  * @returns Transcribed text, or empty string on any error
  */
 export async function transcribe(
   audioUrl: string,
-  apiKey: string,
+  client: OpenRouterClient,
 ): Promise<string> {
-  if (!apiKey) {
-    console.warn("OpenRouter API key not configured for transcription");
-    return "";
-  }
-
   try {
     // 1. Download the audio file
     const audioResponse = await fetch(audioUrl);
@@ -40,32 +35,23 @@ export async function transcribe(
     const format = detectAudioFormat(audioUrl);
 
     // 2. Send to OpenRouter as chat completion with audio input
-    const response = await fetch(OPENROUTER_API_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/containerclaw/containerclaw",
-        "X-Title": "containerclaw",
-      },
-      body: JSON.stringify({
-        model: TRANSCRIPTION_MODEL,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Transcribe this audio. Return only the transcription, no commentary.",
-              },
-              {
-                type: "input_audio",
-                input_audio: { data: base64Audio, format },
-              },
-            ],
-          },
-        ],
-      }),
+    const response = await client.postJSON("/chat/completions", {
+      model: TRANSCRIPTION_MODEL,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Transcribe this audio. Return only the transcription, no commentary.",
+            },
+            {
+              type: "input_audio",
+              input_audio: { data: base64Audio, format },
+            },
+          ],
+        },
+      ],
     });
 
     if (!response.ok) {

@@ -1,6 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { stub } from "jsr:@std/testing/mock";
 import { ImageGenTool } from "./image_gen.ts";
+import { OpenRouterClient } from "../../providers/openrouter_client.ts";
 import type { Storage } from "../../storage/base.ts";
 
 function mockStorage(): Storage {
@@ -19,7 +20,7 @@ function mockStorage(): Storage {
 }
 
 function makeTool(): ImageGenTool {
-  return new ImageGenTool("test-api-key", "openai/dall-e-3", mockStorage());
+  return new ImageGenTool(new OpenRouterClient("test-api-key"), "google/gemini-2.5-flash-image", mockStorage());
 }
 
 // ---------------------------------------------------------------------------
@@ -50,21 +51,29 @@ Deno.test("ImageGenTool - returns error when prompt is empty string", async () =
 });
 
 // ---------------------------------------------------------------------------
-// Successful base64 response
+// Successful image response (data URI in images array)
 // ---------------------------------------------------------------------------
 
-Deno.test("ImageGenTool - b64_json response uploads to storage and returns URL", async () => {
+Deno.test("ImageGenTool - images array response uploads to storage and returns URL", async () => {
   const tool = makeTool();
 
-  // Small valid base64 (3 bytes -> "AAEC")
-  const b64 = btoa(String.fromCharCode(0, 1, 2));
   const fetchStub = stub(
     globalThis,
     "fetch",
     (_input: string | URL | Request): Promise<Response> => {
       return Promise.resolve(
         new Response(
-          JSON.stringify({ data: [{ b64_json: b64 }] }),
+          JSON.stringify({
+            choices: [{
+              message: {
+                role: "assistant",
+                images: [{
+                  type: "image_url",
+                  image_url: { url: "data:image/png;base64,AAEC" },
+                }],
+              },
+            }],
+          }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
       );
@@ -81,10 +90,10 @@ Deno.test("ImageGenTool - b64_json response uploads to storage and returns URL",
 });
 
 // ---------------------------------------------------------------------------
-// Successful URL response
+// Successful image response (data URI in content string)
 // ---------------------------------------------------------------------------
 
-Deno.test("ImageGenTool - url response downloads and uploads to storage", async () => {
+Deno.test("ImageGenTool - data URI in content string uploads to storage", async () => {
   const tool = makeTool();
 
   const fetchStub = stub(
@@ -93,7 +102,14 @@ Deno.test("ImageGenTool - url response downloads and uploads to storage", async 
     (_input: string | URL | Request): Promise<Response> => {
       return Promise.resolve(
         new Response(
-          JSON.stringify({ data: [{ url: "https://cdn.openai.com/img.png" }] }),
+          JSON.stringify({
+            choices: [{
+              message: {
+                role: "assistant",
+                content: "data:image/png;base64,AAEC",
+              },
+            }],
+          }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
       );
@@ -104,6 +120,53 @@ Deno.test("ImageGenTool - url response downloads and uploads to storage", async 
     const result = await tool.execute({ prompt: "a blue square" });
     assertStringIncludes(result, "Image generated and uploaded:");
     assertStringIncludes(result, "https://s3.example.com/images/test.png");
+  } finally {
+    fetchStub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Sends correct request format
+// ---------------------------------------------------------------------------
+
+Deno.test("ImageGenTool - sends chat completions request with modalities", async () => {
+  const tool = makeTool();
+  let capturedUrl = "";
+  let capturedBody = "";
+
+  const fetchStub = stub(
+    globalThis,
+    "fetch",
+    (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      capturedUrl = String(input);
+      capturedBody = String(init?.body ?? "");
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [{
+              message: {
+                role: "assistant",
+                images: [{
+                  type: "image_url",
+                  image_url: { url: "data:image/png;base64,AAEC" },
+                }],
+              },
+            }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    },
+  );
+
+  try {
+    await tool.execute({ prompt: "a cat", aspect_ratio: "16:9" });
+    assertEquals(capturedUrl, "https://openrouter.ai/api/v1/chat/completions");
+    const body = JSON.parse(capturedBody);
+    assertEquals(body.model, "google/gemini-2.5-flash-image");
+    assertEquals(body.messages, [{ role: "user", content: "a cat" }]);
+    assertEquals(body.modalities, ["image"]);
+    assertEquals(body.image_config.aspect_ratio, "16:9");
   } finally {
     fetchStub.restore();
   }
@@ -163,7 +226,7 @@ Deno.test("ImageGenTool - fetch failure returns error message", async () => {
 // No image data in response
 // ---------------------------------------------------------------------------
 
-Deno.test("ImageGenTool - empty data array returns error", async () => {
+Deno.test("ImageGenTool - empty choices returns error", async () => {
   const tool = makeTool();
 
   const fetchStub = stub(
@@ -172,7 +235,7 @@ Deno.test("ImageGenTool - empty data array returns error", async () => {
     (_input: string | URL | Request): Promise<Response> => {
       return Promise.resolve(
         new Response(
-          JSON.stringify({ data: [] }),
+          JSON.stringify({ choices: [{ message: { role: "assistant", content: "Sorry, I can't do that." } }] }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
       );

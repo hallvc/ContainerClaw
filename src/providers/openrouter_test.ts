@@ -1,4 +1,5 @@
 import { assertEquals } from "@std/assert";
+import { OpenRouterClient } from "./openrouter_client.ts";
 import { OpenRouterProvider } from "./openrouter.ts";
 
 /** Helper: build a minimal OpenRouter-shaped JSON response body. */
@@ -86,7 +87,7 @@ function stubFetchSequence(
 // ---------------------------------------------------------------------------
 
 Deno.test("OpenRouterProvider - getDefaultModel returns configured model", () => {
-  const provider = new OpenRouterProvider("sk-key", "anthropic/claude-sonnet-4-5");
+  const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"anthropic/claude-sonnet-4-5");
   assertEquals(provider.getDefaultModel(), "anthropic/claude-sonnet-4-5");
 });
 
@@ -102,7 +103,7 @@ Deno.test("OpenRouterProvider - chat returns text response with correct fields",
   }));
 
   try {
-    const provider = new OpenRouterProvider("sk-test", "test-model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-test"),"test-model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hello" }],
       maxTokens: 100,
@@ -124,7 +125,7 @@ Deno.test("OpenRouterProvider - chat sends correct URL and headers", async () =>
   const stub = stubFetch(makeResponseBody());
 
   try {
-    const provider = new OpenRouterProvider("sk-my-key", "test-model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-my-key"),"test-model");
     await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -147,7 +148,7 @@ Deno.test("OpenRouterProvider - chat sends correct request body without tools", 
   const stub = stubFetch(makeResponseBody());
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "default-model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"default-model");
     await provider.chat({
       messages: [{ role: "user", content: "Test" }],
       maxTokens: 200,
@@ -194,7 +195,7 @@ Deno.test("OpenRouterProvider - chat parses tool calls from response", async () 
   }));
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Read a file" }],
     });
@@ -225,7 +226,7 @@ Deno.test("OpenRouterProvider - chat includes tools and tool_choice when tools p
   ];
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
       tools,
@@ -247,7 +248,7 @@ Deno.test("OpenRouterProvider - chat omits tools and tool_choice when no tools",
   const stub = stubFetch(makeResponseBody());
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
       tools: [],
@@ -269,7 +270,7 @@ Deno.test("OpenRouterProvider - chat uses explicit model over default", async ()
   const stub = stubFetch(makeResponseBody());
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "default-model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"default-model");
     await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
       model: "override-model",
@@ -290,7 +291,7 @@ Deno.test("OpenRouterProvider - chat uses defaultModel when model not specified"
   const stub = stubFetch(makeResponseBody());
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "my-default");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"my-default");
     await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -313,7 +314,7 @@ Deno.test("OpenRouterProvider - chat handles HTTP error response", async () => {
   );
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -339,7 +340,7 @@ Deno.test("OpenRouterProvider - chat handles API error in response body", async 
   // The implementation checks `!response.ok || data.error`
   // With status 200 (ok=true) but error in body, it should return error
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -360,7 +361,7 @@ Deno.test("OpenRouterProvider - chat handles fetch exception", async () => {
   const stub = stubFetchThrow(new TypeError("Failed to fetch"));
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -394,7 +395,7 @@ Deno.test("OpenRouterProvider - chat handles malformed tool arguments", async ()
   }));
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -416,7 +417,7 @@ Deno.test("OpenRouterProvider - chat handles null content", async () => {
   const stub = stubFetch(makeResponseBody({ content: null }));
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -450,7 +451,7 @@ Deno.test("OpenRouterProvider - chat extracts reasoning_content when present", a
   const stub = stubFetch(body);
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "deepseek/deepseek-r1");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"deepseek/deepseek-r1");
     const result = await provider.chat({
       messages: [{ role: "user", content: "What is the meaning of life?" }],
     });
@@ -470,7 +471,7 @@ Deno.test("OpenRouterProvider - chat returns null reasoning_content when absent"
   }));
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "anthropic/claude-sonnet-4-5");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"anthropic/claude-sonnet-4-5");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -495,7 +496,7 @@ Deno.test("OpenRouterProvider - chat handles missing usage", async () => {
   }));
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -528,7 +529,7 @@ Deno.test("OpenRouterProvider - chat repairs malformed tool arguments", async ()
   }));
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -550,7 +551,7 @@ Deno.test("OpenRouterProvider - chat returns error when choices array is empty",
   const stub = stubFetch(JSON.stringify({ choices: [] }));
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -569,7 +570,7 @@ Deno.test("OpenRouterProvider - chat returns error when choices field is missing
   const stub = stubFetch(JSON.stringify({}));
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -615,7 +616,7 @@ Deno.test("OpenRouterProvider - parseToolArguments warns when both parse attempt
   }));
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -643,7 +644,7 @@ Deno.test("OpenRouterProvider - chat retries on TimeoutError then returns error"
   };
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -677,7 +678,7 @@ Deno.test("OpenRouterProvider - chat retries on fetch exception and succeeds on 
   });
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -712,7 +713,7 @@ Deno.test("OpenRouterProvider - chat retries on 429 and succeeds on second attem
   });
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -745,7 +746,7 @@ Deno.test("OpenRouterProvider - chat retries on 500 and succeeds on second attem
   });
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -770,7 +771,7 @@ Deno.test("OpenRouterProvider - chat does NOT retry on 400 response", async () =
   });
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -789,7 +790,7 @@ Deno.test("OpenRouterProvider - chat gives up after max retries and returns erro
   });
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -817,7 +818,7 @@ Deno.test("OpenRouterProvider - content array passes through correctly in reques
   ];
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "test-model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"test-model");
     await provider.chat({
       messages: [{ role: "user", content: contentParts as unknown as string }],
     });
@@ -896,7 +897,7 @@ Deno.test("SSE streaming - assembles text content from multiple deltas", async (
   ]);
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -957,7 +958,7 @@ Deno.test("SSE streaming - assembles tool calls from chunked deltas", async () =
   ]);
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Read a file" }],
     });
@@ -1011,7 +1012,7 @@ Deno.test("SSE streaming - assembles multiple tool calls by index", async () => 
   ]);
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Do two things" }],
     });
@@ -1046,7 +1047,7 @@ Deno.test("SSE streaming - ignores keepalive comments", async () => {
   ]);
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -1082,7 +1083,7 @@ Deno.test("SSE streaming - handles mixed content and tool calls", async () => {
   ]);
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Search for something" }],
     });
@@ -1109,7 +1110,7 @@ Deno.test("SSE streaming - falls back to JSON parsing for error responses", asyn
   );
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -1144,7 +1145,7 @@ Deno.test("SSE streaming - skips malformed SSE chunks and continues", async () =
   ]);
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -1171,7 +1172,7 @@ Deno.test("SSE streaming - request body includes stream: true", async () => {
   ]);
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });
@@ -1200,7 +1201,7 @@ Deno.test("SSE streaming - assembles reasoning_content from deltas", async () =>
   ]);
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Think about this" }],
     });
@@ -1225,7 +1226,7 @@ Deno.test("SSE streaming - captures usage from final usage-only chunk", async ()
   ]);
 
   try {
-    const provider = new OpenRouterProvider("sk-key", "model");
+    const provider = new OpenRouterProvider(new OpenRouterClient("sk-key"),"model");
     const result = await provider.chat({
       messages: [{ role: "user", content: "Hi" }],
     });

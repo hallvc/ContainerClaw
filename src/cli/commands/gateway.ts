@@ -1,6 +1,7 @@
 import { loadConfig } from "../../config/loader.ts";
 import { resolveModel } from "../../config/models.ts";
 import { MessageBus } from "../../bus/queue.ts";
+import { OpenRouterClient } from "../../providers/openrouter_client.ts";
 import { OpenRouterProvider } from "../../providers/openrouter.ts";
 import { AgentLoop } from "../../agent/loop.ts";
 import { SlackChannel } from "../../channels/slack.ts";
@@ -52,8 +53,9 @@ export async function runGateway(): Promise<void> {
 
   // Create core components
   const bus = new MessageBus();
+  const orClient = new OpenRouterClient(config.openrouter.api_key);
   const provider = new OpenRouterProvider(
-    config.openrouter.api_key,
+    orClient,
     config.openrouter.default_model,
   );
   const cron = new CronService(config.data_dir, {
@@ -100,9 +102,8 @@ export async function runGateway(): Promise<void> {
   }
 
   if (channels.hasTelegram) {
-    const orKey = config.openrouter.api_key;
-    const transcriber = orKey
-      ? (url: string) => transcribe(url, orKey)
+    const transcriber = config.openrouter.api_key
+      ? (url: string) => transcribe(url, orClient)
       : undefined;
     const telegramChannel = new TelegramChannel(
       config.telegram,

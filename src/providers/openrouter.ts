@@ -1,12 +1,8 @@
 import type { LLMProvider, LLMResponse, ToolCallRequest } from "./base.ts";
 import type { MessageContent } from "./content.ts";
+import type { OpenRouterClient } from "./openrouter_client.ts";
 import { jsonrepair } from "jsonrepair";
 
-const API_URL = "https://openrouter.ai/api/v1/chat/completions";
-
-const RETRY_MAX_ATTEMPTS = 3;
-const RETRY_INITIAL_DELAY_MS = 1000;
-const RETRY_MAX_DELAY_MS = 8000;
 const INITIAL_RESPONSE_TIMEOUT_MS = 30_000; // 30s for initial HTTP connection
 const STREAM_CHUNK_TIMEOUT_MS = 120_000; // 2min idle between SSE chunks
 
@@ -198,78 +194,12 @@ async function accumulateStream(
   };
 }
 
-/**
- * Retry a fetch call with exponential backoff.
- * - Retries on network errors (fetch throws) and HTTP 429/5xx.
- * - Does NOT retry on TimeoutError or HTTP 4xx (except 429).
- * - On exhaustion of retries for 429/5xx, returns the last response so the
- *   caller's existing error-handling branch (data.error / !response.ok) applies.
- */
-async function withRetry(
-  fn: () => Promise<Response>,
-): Promise<Response> {
-  let lastNetworkError: unknown;
-  let lastResponse: Response | undefined;
-
-  for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
-    try {
-      const response = await fn();
-
-      // Retry on 429 and 5xx
-      if (response.status === 429 || response.status >= 500) {
-        lastResponse = response;
-        if (attempt < RETRY_MAX_ATTEMPTS - 1) {
-          const jitter = Math.random() * 200;
-          const delay = Math.min(
-            RETRY_INITIAL_DELAY_MS * Math.pow(2, attempt) + jitter,
-            RETRY_MAX_DELAY_MS,
-          );
-          console.warn(
-            `Retrying after HTTP ${response.status} (attempt ${attempt + 1}): HTTP ${response.status}`,
-          );
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          continue;
-        }
-        // Exhausted retries — return last response so caller handles it
-        return lastResponse;
-      }
-
-      return response;
-    } catch (err) {
-      // Retry TimeoutError like other transient failures
-      if (err instanceof DOMException && err.name === "TimeoutError") {
-        lastNetworkError = err;
-        if (attempt < RETRY_MAX_ATTEMPTS - 1) {
-          console.warn(`Retrying after timeout (attempt ${attempt + 1})`);
-          await new Promise((resolve) => setTimeout(resolve, RETRY_INITIAL_DELAY_MS));
-          continue;
-        }
-        throw err;
-      }
-      lastNetworkError = err;
-      if (attempt < RETRY_MAX_ATTEMPTS - 1) {
-        const jitter = Math.random() * 200;
-        const delay = Math.min(
-          RETRY_INITIAL_DELAY_MS * Math.pow(2, attempt) + jitter,
-          RETRY_MAX_DELAY_MS,
-        );
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`Retrying after error (attempt ${attempt + 1}): ${msg}`);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
-  }
-
-  // All retries exhausted on network error
-  throw lastNetworkError;
-}
-
 export class OpenRouterProvider implements LLMProvider {
-  private readonly apiKey: string;
+  private readonly client: OpenRouterClient;
   private readonly defaultModel: string;
 
-  constructor(apiKey: string, defaultModel: string) {
-    this.apiKey = apiKey;
+  constructor(client: OpenRouterClient, defaultModel: string) {
+    this.client = client;
     this.defaultModel = defaultModel;
   }
 
@@ -304,20 +234,10 @@ export class OpenRouterProvider implements LLMProvider {
     }
 
     try {
-      const response = await withRetry(() =>
-        fetch(API_URL, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${this.apiKey}`,
-            "Content-Type": "application/json",
-            "Accept": "text/event-stream",
-            "HTTP-Referer": "https://github.com/containerclaw/containerclaw",
-            "X-Title": "containerclaw",
-          },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(INITIAL_RESPONSE_TIMEOUT_MS),
-        })
-      );
+      const response = await this.client.postJSON("/chat/completions", body, {
+        timeoutMs: INITIAL_RESPONSE_TIMEOUT_MS,
+        accept: "text/event-stream",
+      });
 
       const contentType = response.headers.get("content-type") ?? "";
 

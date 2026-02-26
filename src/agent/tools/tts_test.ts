@@ -1,6 +1,7 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { stub } from "jsr:@std/testing/mock";
 import { TtsTool } from "./tts.ts";
+import { OpenRouterClient } from "../../providers/openrouter_client.ts";
 import type { Storage } from "../../storage/base.ts";
 
 function mockStorage(): Storage {
@@ -19,7 +20,7 @@ function mockStorage(): Storage {
 }
 
 function makeTool(): TtsTool {
-  return new TtsTool("test-api-key", "openai/tts-1", mockStorage());
+  return new TtsTool(new OpenRouterClient("test-api-key"), "openai/tts-1", mockStorage());
 }
 
 // ---------------------------------------------------------------------------
