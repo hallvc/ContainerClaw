@@ -1,5 +1,7 @@
 {
   "imports": {
+    "@aws-sdk/client-s3": "npm:@aws-sdk/client-s3@^3.550",
+    "@std/encoding": "jsr:@std/encoding@^1",
     "@slack/web-api": "npm:@slack/web-api@7",
     "@slack/socket-mode": "npm:@slack/socket-mode@2",
     "@mozilla/readability": "npm:@mozilla/readability@0.5",

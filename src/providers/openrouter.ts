@@ -1,4 +1,5 @@
 import type { LLMProvider, LLMResponse, ToolCallRequest } from "./base.ts";
+import type { MessageContent } from "./content.ts";
 import { jsonrepair } from "jsonrepair";
 
 const API_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -279,7 +280,7 @@ export class OpenRouterProvider implements LLMProvider {
   async chat(params: {
     messages: Array<{
       role: string;
-      content: string | null;
+      content: MessageContent;
       tool_calls?: unknown[];
       tool_call_id?: string;
       name?: string;

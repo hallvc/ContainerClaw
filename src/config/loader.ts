@@ -71,6 +71,9 @@ export function buildRawConfig(
           default: model,
           chat: env.CONTAINERCLAW_MODEL_CHAT,
           memory: env.CONTAINERCLAW_MODEL_MEMORY,
+          vision: env.CONTAINERCLAW_MODEL_VISION,
+          image: env.CONTAINERCLAW_MODEL_IMAGE,
+          tts: env.CONTAINERCLAW_MODEL_TTS,
         }),
       },
       ...defined({
@@ -116,6 +119,19 @@ export function buildRawConfig(
         job_timeout_ms: parseOptionalInt(env.CONTAINERCLAW_CRON_JOB_TIMEOUT_MS),
       }),
     },
+    storage: {
+      ...((fileConfig.storage as Record<string, unknown>) ?? {}),
+      ...defined({
+        endpoint: env.S3_ENDPOINT,
+        region: env.S3_REGION,
+        bucket: env.S3_BUCKET,
+        access_key_id: env.S3_ACCESS_KEY_ID,
+        secret_access_key: env.S3_SECRET_ACCESS_KEY,
+        public_url: env.S3_PUBLIC_URL,
+        force_path_style: parseOptionalBool(env.S3_FORCE_PATH_STYLE),
+        public_url_includes_bucket: parseOptionalBool(env.S3_PUBLIC_URL_INCLUDES_BUCKET),
+      }),
+    },
   };
 }
 
@@ -157,6 +173,9 @@ export async function loadConfig(configPath?: string): Promise<Config> {
     CONTAINERCLAW_MODEL: Deno.env.get("CONTAINERCLAW_MODEL"),
     CONTAINERCLAW_MODEL_CHAT: Deno.env.get("CONTAINERCLAW_MODEL_CHAT"),
     CONTAINERCLAW_MODEL_MEMORY: Deno.env.get("CONTAINERCLAW_MODEL_MEMORY"),
+    CONTAINERCLAW_MODEL_VISION: Deno.env.get("CONTAINERCLAW_MODEL_VISION"),
+    CONTAINERCLAW_MODEL_IMAGE: Deno.env.get("CONTAINERCLAW_MODEL_IMAGE"),
+    CONTAINERCLAW_MODEL_TTS: Deno.env.get("CONTAINERCLAW_MODEL_TTS"),
     CONTAINERCLAW_WORKSPACE: Deno.env.get("CONTAINERCLAW_WORKSPACE"),
     CONTAINERCLAW_DATA_DIR: Deno.env.get("CONTAINERCLAW_DATA_DIR"),
     CONTAINERCLAW_TEMPERATURE: Deno.env.get("CONTAINERCLAW_TEMPERATURE"),
@@ -181,6 +200,14 @@ export async function loadConfig(configPath?: string): Promise<Config> {
     CONTAINERCLAW_CRON_ENABLED: Deno.env.get("CONTAINERCLAW_CRON_ENABLED"),
     CONTAINERCLAW_CRON_TICK_INTERVAL_MS: Deno.env.get("CONTAINERCLAW_CRON_TICK_INTERVAL_MS"),
     CONTAINERCLAW_CRON_JOB_TIMEOUT_MS: Deno.env.get("CONTAINERCLAW_CRON_JOB_TIMEOUT_MS"),
+    S3_ENDPOINT: Deno.env.get("S3_ENDPOINT"),
+    S3_REGION: Deno.env.get("S3_REGION"),
+    S3_BUCKET: Deno.env.get("S3_BUCKET"),
+    S3_ACCESS_KEY_ID: Deno.env.get("S3_ACCESS_KEY_ID"),
+    S3_SECRET_ACCESS_KEY: Deno.env.get("S3_SECRET_ACCESS_KEY"),
+    S3_PUBLIC_URL: Deno.env.get("S3_PUBLIC_URL"),
+    S3_FORCE_PATH_STYLE: Deno.env.get("S3_FORCE_PATH_STYLE"),
+    S3_PUBLIC_URL_INCLUDES_BUCKET: Deno.env.get("S3_PUBLIC_URL_INCLUDES_BUCKET"),
   };
   const raw = buildRawConfig(env, fileConfig);
   const clean = JSON.parse(JSON.stringify(raw));

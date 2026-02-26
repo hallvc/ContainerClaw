@@ -43,3 +43,42 @@ Deno.test("MessageTool - throws when no channel available", async () => {
     assertStringIncludes((e as Error).message, "channel");
   }
 });
+
+Deno.test("MessageTool - passes media array to outbound message", async () => {
+  const msgs: OutboundMessage[] = [];
+  const tool = new MessageTool(async (msg) => { msgs.push(msg); });
+  tool.setContext("telegram", "123");
+
+  await tool.execute({
+    content: "Check this out",
+    media: ["https://s3.example.com/images/test.png"],
+  });
+
+  assertEquals(msgs[0].media, ["https://s3.example.com/images/test.png"]);
+});
+
+Deno.test("MessageTool - defaults media to empty array when not provided", async () => {
+  const msgs: OutboundMessage[] = [];
+  const tool = new MessageTool(async (msg) => { msgs.push(msg); });
+  tool.setContext("telegram", "123");
+
+  await tool.execute({ content: "No media" });
+
+  assertEquals(msgs[0].media, []);
+});
+
+Deno.test("MessageTool - passes multiple media URLs", async () => {
+  const msgs: OutboundMessage[] = [];
+  const tool = new MessageTool(async (msg) => { msgs.push(msg); });
+  tool.setContext("slack", "C999");
+
+  await tool.execute({
+    content: "Multiple attachments",
+    media: ["https://s3.example.com/a.jpg", "https://s3.example.com/b.mp3"],
+  });
+
+  assertEquals(msgs[0].media, [
+    "https://s3.example.com/a.jpg",
+    "https://s3.example.com/b.mp3",
+  ]);
+});

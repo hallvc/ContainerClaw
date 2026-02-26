@@ -29,6 +29,11 @@ export class ContainerclawOAuthProvider implements OAuthClientProvider {
   private _config: MCPServerConfig;
   private _onRedirect: (url: URL) => void | Promise<void>;
 
+  /** The last authorization URL the SDK asked us to redirect to. */
+  lastAuthUrl?: string;
+  /** Set to true if the browser failed to open for the auth URL. */
+  browserOpenFailed = false;
+
   constructor(
     serverName: string,
     workspace: string,
@@ -81,6 +86,7 @@ export class ContainerclawOAuthProvider implements OAuthClientProvider {
   }
 
   async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
+    this.lastAuthUrl = authorizationUrl.toString();
     await this._onRedirect(authorizationUrl);
   }
 
@@ -168,8 +174,8 @@ export function waitForOAuthCallback(
   });
 }
 
-/** Open a URL in the user's default browser (cross-platform). */
-export function openBrowser(url: string): void {
+/** Open a URL in the user's default browser (cross-platform). Returns true on success. */
+export function openBrowser(url: string): boolean {
   let cmd: string;
   let args: string[];
 
@@ -188,7 +194,7 @@ export function openBrowser(url: string): void {
       break;
     default:
       console.log(`Please open this URL in your browser: ${url}`);
-      return;
+      return false;
   }
 
   try {
@@ -197,10 +203,12 @@ export function openBrowser(url: string): void {
       stdout: "null",
       stderr: "null",
     }).spawn();
+    return true;
   } catch {
     console.log(
       `Could not open browser. Please open this URL manually: ${url}`,
     );
+    return false;
   }
 }
 
@@ -218,6 +226,12 @@ export async function performOAuthFlow(
   const authCode = await waitForOAuthCallback(port, timeoutMs);
   await transport.finishAuth(authCode);
   return authCode;
+}
+
+/** Info about an MCP server that needs authentication the user must resolve. */
+export interface MCPAuthPending {
+  serverName: string;
+  authUrl: string;
 }
 
 export { CALLBACK_PORT, CALLBACK_URL, OAUTH_TIMEOUT_MS };

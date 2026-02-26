@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { ContextBuilder } from "./context.ts";
 import type { MemoryStore } from "./memory.ts";
 
@@ -50,16 +50,21 @@ Deno.test("ContextBuilder - buildMessages history messages inserted in order bet
   }
 });
 
-// Test 3: media URLs appended to user message content
-Deno.test("ContextBuilder - buildMessages media URLs appended to user message content", async () => {
+// Test 3: media URLs produce multipart content parts
+Deno.test("ContextBuilder - buildMessages media URLs produce content parts", async () => {
   const dir = await Deno.makeTempDir();
   try {
     const builder = new ContextBuilder(dir, makeMemory());
     const messages = await builder.buildMessages([], "describe this", ["http://example.com/img.png"]);
     const userMsg = messages[messages.length - 1];
     assertEquals(userMsg.role, "user");
-    assertStringIncludes(userMsg.content as string, "describe this");
-    assertStringIncludes(userMsg.content as string, "[Attached: http://example.com/img.png]");
+    // Content should be a ContentPart array when media is present
+    assert(Array.isArray(userMsg.content), "content should be an array of ContentPart");
+    const parts = userMsg.content as Array<{ type: string; text?: string; image_url?: { url: string } }>;
+    assertEquals(parts[0].type, "text");
+    assertEquals(parts[0].text, "describe this");
+    assertEquals(parts[1].type, "image_url");
+    assertEquals(parts[1].image_url?.url, "http://example.com/img.png");
   } finally {
     await Deno.remove(dir, { recursive: true });
   }

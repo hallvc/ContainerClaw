@@ -2,13 +2,14 @@
  * Telegram channel implementation using grammY (long polling).
  */
 
-import { Bot } from "grammy";
+import { Bot, InputFile } from "grammy";
 import type { Context } from "grammy";
 
 import type { OutboundMessage } from "../bus/events.ts";
 import type { MessageBus } from "../bus/queue.ts";
 import type { TelegramConfig } from "../config/schema.ts";
 import { BaseChannel } from "./base.ts";
+import { detectMediaType, downloadAsBase64 } from "../providers/media.ts";
 
 export function markdownToTelegramHtml(text: string): string {
   if (!text) return "";
@@ -194,16 +195,71 @@ export class TelegramChannel extends BaseChannel {
       return;
     }
 
-    for (const chunk of splitMessage(msg.content)) {
-      try {
-        const html = markdownToTelegramHtml(chunk);
-        await this._bot.api.sendMessage(chatId, html, { parse_mode: "HTML" });
-      } catch {
+    // Send text content (if any)
+    if (msg.content) {
+      for (const chunk of splitMessage(msg.content)) {
         try {
-          await this._bot.api.sendMessage(chatId, chunk);
-        } catch (e2) {
-          console.error(`Error sending Telegram message: ${e2}`);
+          const html = markdownToTelegramHtml(chunk);
+          await this._bot.api.sendMessage(chatId, html, { parse_mode: "HTML" });
+        } catch {
+          try {
+            await this._bot.api.sendMessage(chatId, chunk);
+          } catch (e2) {
+            console.error(`Error sending Telegram message: ${e2}`);
+          }
         }
+      }
+    }
+
+    // Send media attachments
+    for (const item of msg.media) {
+      try {
+        await this.sendMediaItem(chatId, item);
+      } catch (e) {
+        console.error(`Error sending Telegram media: ${e}`);
+      }
+    }
+  }
+
+  private async sendMediaItem(chatId: number, item: string): Promise<void> {
+    if (!this._bot) return;
+
+    const mediaType = detectMediaType(item);
+
+    if (item.startsWith("data:")) {
+      // Data URI: decode to bytes and send as InputFile
+      const base64Data = item.split(",")[1] ?? "";
+      const { decodeBase64 } = await import("@std/encoding/base64");
+      const bytes = decodeBase64(base64Data);
+      const file = new InputFile(bytes);
+
+      if (mediaType === "image") {
+        await this._bot.api.sendPhoto(chatId, file);
+      } else if (mediaType === "audio") {
+        // Check if it's ogg/opus for voice bubble rendering
+        const mime = item.split(";")[0].slice(5);
+        if (mime === "audio/ogg" || mime === "audio/opus") {
+          await this._bot.api.sendVoice(chatId, file);
+        } else {
+          await this._bot.api.sendAudio(chatId, file);
+        }
+      } else {
+        await this._bot.api.sendDocument(chatId, file);
+      }
+    } else {
+      // URL (S3 or HTTP): pass directly to Telegram
+      if (mediaType === "image") {
+        await this._bot.api.sendPhoto(chatId, item);
+      } else if (mediaType === "audio") {
+        // Check extension for voice bubble
+        const ext = item.split("?")[0].split(".").pop()?.toLowerCase() ?? "";
+        if (ext === "ogg" || ext === "oga" || ext === "opus") {
+          await this._bot.api.sendVoice(chatId, item);
+        } else {
+          await this._bot.api.sendAudio(chatId, item);
+        }
+      } else {
+        await this._bot.api.sendDocument(chatId, item);
       }
     }
   }
@@ -249,8 +305,13 @@ export class TelegramChannel extends BaseChannel {
         const file = await ctx.api.getFile(photo.file_id);
         if (file.file_path) {
           const url = `https://api.telegram.org/file/bot${this.config.bot_token}/${file.file_path}`;
-          contentParts.push(`[image: ${url}]`);
-          mediaPaths.push(url);
+          try {
+            const { data, mimeType } = await downloadAsBase64(url);
+            const dataUri = `data:${mimeType};base64,${data}`;
+            mediaPaths.push(dataUri);
+          } catch {
+            contentParts.push(`[image: download failed]`);
+          }
         }
       } catch (e) {
         console.error(`Failed to get photo: ${e}`);
@@ -261,15 +322,27 @@ export class TelegramChannel extends BaseChannel {
         const file = await ctx.api.getFile(ctx.message.voice.file_id);
         if (file.file_path) {
           const url = `https://api.telegram.org/file/bot${this.config.bot_token}/${file.file_path}`;
+          // Download eagerly as data URI
+          let audioDataUri = "";
+          try {
+            const { data, mimeType } = await downloadAsBase64(url);
+            audioDataUri = `data:${mimeType};base64,${data}`;
+          } catch {
+            // Download failed, continue with transcription only
+          }
+          // Transcribe
           let text = "";
           if (this.transcriber) {
             text = await this.transcriber(url);
           }
           if (text) {
             contentParts.push(text);
-          } else {
-            contentParts.push(`[voice: ${url}]`);
-            mediaPaths.push(url);
+          }
+          // Always push audio data URI if we have it (both transcription AND raw audio)
+          if (audioDataUri) {
+            mediaPaths.push(audioDataUri);
+          } else if (!text) {
+            contentParts.push(`[voice: download failed]`);
           }
         }
       } catch (e) {
@@ -281,15 +354,27 @@ export class TelegramChannel extends BaseChannel {
         const file = await ctx.api.getFile(ctx.message.audio.file_id);
         if (file.file_path) {
           const url = `https://api.telegram.org/file/bot${this.config.bot_token}/${file.file_path}`;
+          // Download eagerly as data URI
+          let audioDataUri = "";
+          try {
+            const { data, mimeType } = await downloadAsBase64(url);
+            audioDataUri = `data:${mimeType};base64,${data}`;
+          } catch {
+            // Download failed, continue with transcription only
+          }
+          // Transcribe
           let text = "";
           if (this.transcriber) {
             text = await this.transcriber(url);
           }
           if (text) {
             contentParts.push(text);
-          } else {
-            contentParts.push(`[audio: ${url}]`);
-            mediaPaths.push(url);
+          }
+          // Always push audio data URI if we have it (both transcription AND raw audio)
+          if (audioDataUri) {
+            mediaPaths.push(audioDataUri);
+          } else if (!text) {
+            contentParts.push(`[audio: download failed]`);
           }
         }
       } catch (e) {
@@ -301,8 +386,13 @@ export class TelegramChannel extends BaseChannel {
         const file = await ctx.api.getFile(ctx.message.document.file_id);
         if (file.file_path) {
           const url = `https://api.telegram.org/file/bot${this.config.bot_token}/${file.file_path}`;
-          contentParts.push(`[file: ${url}]`);
-          mediaPaths.push(url);
+          try {
+            const { data, mimeType } = await downloadAsBase64(url);
+            const dataUri = `data:${mimeType};base64,${data}`;
+            mediaPaths.push(dataUri);
+          } catch {
+            contentParts.push(`[file: download failed]`);
+          }
         }
       } catch (e) {
         console.error(`Failed to get document: ${e}`);

@@ -9,6 +9,7 @@ import slackifyMarkdown from "slackify-markdown";
 import type { OutboundMessage } from "../bus/events.ts";
 import type { MessageBus } from "../bus/queue.ts";
 import { BaseChannel } from "./base.ts";
+import { detectMediaType, downloadAsBytes } from "../providers/media.ts";
 
 export interface SlackDmConfig {
   enabled: boolean;
@@ -105,11 +106,24 @@ export class SlackChannel extends BaseChannel {
       const channelType = slackMeta.channel_type as string | undefined;
       // Only reply in thread for channel/group messages; DMs don't use threads
       const useThread = threadTs && channelType !== "im";
-      await this.webClient.chat.postMessage({
-        channel: msg.chatId,
-        text: this.toMrkdwn(msg.content),
-        thread_ts: useThread ? threadTs : undefined,
-      });
+
+      // Send text message
+      if (msg.content) {
+        await this.webClient.chat.postMessage({
+          channel: msg.chatId,
+          text: this.toMrkdwn(msg.content),
+          thread_ts: useThread ? threadTs : undefined,
+        });
+      }
+
+      // Send media attachments
+      for (const item of msg.media) {
+        try {
+          await this.sendMediaItem(msg.chatId, item, useThread ? threadTs : undefined);
+        } catch (e) {
+          console.error(`Error sending Slack media: ${e}`);
+        }
+      }
 
       // Remove :eyes: reaction now that we've responded (best-effort)
       const messageTs = slackMeta.message_ts as string | undefined;
@@ -127,6 +141,50 @@ export class SlackChannel extends BaseChannel {
     } catch (e) {
       console.error(`Error sending Slack message: ${e}`);
     }
+  }
+
+  private async sendMediaItem(
+    channel: string,
+    item: string,
+    threadTs?: string,
+  ): Promise<void> {
+    if (!this.webClient) return;
+
+    let fileData: Uint8Array;
+    let filename: string;
+
+    if (item.startsWith("data:")) {
+      const { decodeBase64 } = await import("@std/encoding/base64");
+      const base64Data = item.split(",")[1] ?? "";
+      fileData = decodeBase64(base64Data);
+      const mime = item.split(";")[0].slice(5);
+      const extMap: Record<string, string> = {
+        "image/png": "png",
+        "image/jpeg": "jpg",
+        "image/gif": "gif",
+        "image/webp": "webp",
+        "audio/ogg": "ogg",
+        "audio/opus": "opus",
+        "audio/mpeg": "mp3",
+        "audio/wav": "wav",
+      };
+      filename = `file.${extMap[mime] ?? "bin"}`;
+    } else {
+      // Download from URL
+      const { bytes } = await downloadAsBytes(item);
+      fileData = bytes;
+      const urlPath = item.split("?")[0];
+      filename = urlPath.split("/").pop() ?? "file";
+    }
+
+    // deno-lint-ignore no-explicit-any
+    const uploadArgs: any = {
+      channel_id: channel,
+      file: fileData,
+      filename,
+    };
+    if (threadTs) uploadArgs.thread_ts = threadTs;
+    await this.webClient.filesUploadV2(uploadArgs);
   }
 
   private async onSocketEvent(

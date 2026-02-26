@@ -804,6 +804,33 @@ Deno.test("OpenRouterProvider - chat gives up after max retries and returns erro
   }
 });
 
+// ---------------------------------------------------------------------------
+// Content array serialization
+// ---------------------------------------------------------------------------
+
+Deno.test("OpenRouterProvider - content array passes through correctly in request body", async () => {
+  const stub = stubFetch(makeResponseBody({ content: "I see an image", finish_reason: "stop" }));
+
+  const contentParts = [
+    { type: "text", text: "What's in this image?" },
+    { type: "image_url", image_url: { url: "data:image/png;base64,abc123" } },
+  ];
+
+  try {
+    const provider = new OpenRouterProvider("sk-key", "test-model");
+    await provider.chat({
+      messages: [{ role: "user", content: contentParts as unknown as string }],
+    });
+
+    const body = JSON.parse(stub.calls[0].init.body as string);
+    assertEquals(body.messages[0].content, contentParts);
+    assertEquals(body.messages[0].content[0].type, "text");
+    assertEquals(body.messages[0].content[1].type, "image_url");
+  } finally {
+    stub.restore();
+  }
+});
+
 // ===========================================================================
 // SSE Streaming Tests
 // ===========================================================================

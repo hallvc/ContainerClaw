@@ -10,7 +10,7 @@ type SendCallback = (msg: OutboundMessage) => Promise<void>;
 export class MessageTool implements Tool {
   name = "message";
   description =
-    "Send a message to a chat channel. Use this to reply to the user.";
+    "Send a message to a chat channel. Use this to reply to the user. Optionally attach media (images, audio) via the media parameter.";
   parameters = {
     type: "object",
     properties: {
@@ -25,6 +25,12 @@ export class MessageTool implements Tool {
       content: {
         type: "string",
         description: "Message content to send.",
+      },
+      media: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "URLs of media to attach (images, audio files). Use S3 URLs from generate_image, text_to_speech, or upload_file tools.",
       },
     },
     required: ["content"],
@@ -46,6 +52,7 @@ export class MessageTool implements Tool {
     const channel = String(args.channel ?? this.defaultChannel ?? "");
     const chatId = String(args.chat_id ?? this.defaultChatId ?? "");
     const content = String(args.content ?? "");
+    const media = Array.isArray(args.media) ? (args.media as string[]).map(String) : [];
 
     if (!channel) throw new Error("channel is required.");
     if (!chatId) throw new Error("chat_id is required.");
@@ -54,7 +61,7 @@ export class MessageTool implements Tool {
       channel,
       chatId,
       content,
-      media: [],
+      media,
       metadata: { ...this.defaultMetadata },
     };
 

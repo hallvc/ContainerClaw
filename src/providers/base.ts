@@ -16,11 +16,13 @@ export interface LLMResponse {
   };
 }
 
+import type { MessageContent } from "./content.ts";
+
 export interface LLMProvider {
   chat(params: {
     messages: Array<{
       role: string;
-      content: string | null;
+      content: MessageContent;
       tool_calls?: unknown[];
       tool_call_id?: string;
       name?: string;

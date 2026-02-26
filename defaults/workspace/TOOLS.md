@@ -71,6 +71,37 @@ Send a message to the user (used internally).
 message(content: str, channel: str = None, chat_id: str = None) -> str
 ```
 
+## Media & File Sharing
+
+### generate_image
+Generate an image from a text prompt. The image is uploaded to cloud storage automatically.
+```
+generate_image(prompt: str, size: str = "1024x1024") -> str
+```
+
+Returns the S3 URL of the generated image. Use the `message` tool with the URL in the `media` parameter to send it to the user.
+
+### text_to_speech
+Convert text to speech audio. The audio is uploaded to cloud storage automatically.
+```
+text_to_speech(text: str, voice: str = "alloy") -> str
+```
+
+Returns the S3 URL of the generated audio. Use the `message` tool with the URL in the `media` parameter to send it to the user.
+
+### upload_file
+Upload a workspace file to cloud storage for sharing.
+```
+upload_file(path: str, content_type: str = None) -> str
+```
+
+Returns a public URL. When you create documents, reports, or files that users want to access, use this tool to upload them and share the URL.
+
+**Upload & Share Pattern:**
+1. Create a file with `write_file`
+2. Upload it with `upload_file` to get a public URL
+3. Share the URL with the user via `message`
+
 ## Background Tasks
 
 ### spawn

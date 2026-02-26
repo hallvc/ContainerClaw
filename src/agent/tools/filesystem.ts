@@ -5,7 +5,7 @@
 import { resolve } from "@std/path";
 import type { Tool } from "./base.ts";
 
-function assertWithinWorkspace(workspace: string, filePath: string): string {
+export function assertWithinWorkspace(workspace: string, filePath: string): string {
   // Resolve both paths to absolute without requiring the path to exist yet.
   const abs = resolve(workspace, filePath);
   const realWorkspace = (() => {

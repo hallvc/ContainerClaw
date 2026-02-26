@@ -17,6 +17,12 @@ import { CronTool } from "./tools/cron.ts";
 import { SpawnTool } from "./tools/spawn.ts";
 import { LearnTool } from "./tools/learn.ts";
 import { connectMcpServers, loadMcpConfig } from "./tools/mcp.ts";
+import type { MCPAuthPending } from "./tools/mcp.ts";
+import { UploadFileTool } from "./tools/upload.ts";
+import { ImageGenTool } from "./tools/image_gen.ts";
+import { TtsTool } from "./tools/tts.ts";
+import { StorageClient } from "../storage/s3.ts";
+import type { Storage } from "../storage/base.ts";
 import { ContainerclawOAuthProvider, openBrowser } from "./tools/mcp_auth.ts";
 import type { CronService } from "../cron/service.ts";
 import { SubagentManager } from "./subagent.ts";
@@ -25,8 +31,10 @@ import type { Session } from "../session/manager.ts";
 import { MemoryStore } from "./memory.ts";
 import { seedWorkspace, SkillsLoader } from "./skills.ts";
 import { ContextBuilder } from "./context.ts";
-import type { Config } from "../config/schema.ts";
+import type { Config, ModelRole } from "../config/schema.ts";
 import { resolveModel } from "../config/models.ts";
+import type { MessageContent } from "../providers/content.ts";
+import { detectMediaType } from "../providers/media.ts";
 
 interface AgentLoopResult {
   content: string;
@@ -51,6 +59,8 @@ export class AgentLoop {
   private _running = false;
   private _mcpConnected = false;
   private _mcpCleanup: Array<() => Promise<void>> = [];
+  private _mcpAuthErrors: MCPAuthPending[] = [];
+  private storage?: Storage;
 
   constructor(
     bus: MessageBus,
@@ -123,17 +133,22 @@ export class AgentLoop {
                 `\nMCP server '${name}': authorization required.`,
               );
               console.log(`  Visit: ${url}`);
-              openBrowser(url.toString());
+              const opened = openBrowser(url.toString());
+              if (!opened) {
+                authProviders[name].browserOpenFailed = true;
+              }
             },
           );
         }
       }
 
-      this._mcpCleanup = await connectMcpServers(
+      const { cleanups, authErrors } = await connectMcpServers(
         mcpServers,
         this.tools,
         Object.keys(authProviders).length > 0 ? authProviders : undefined,
       );
+      this._mcpCleanup = cleanups;
+      this._mcpAuthErrors = authErrors;
       this._mcpConnected = true;
     } catch (err) {
       console.error("MCP connection failed:", err);
@@ -171,6 +186,39 @@ export class AgentLoop {
     await this.skills.seedDefaultSkills().catch((e) =>
       console.error("Skill seeding error:", e)
     );
+
+    // Initialize storage and register storage-dependent tools
+    try {
+      const sc = this.config.storage;
+      const storageClient = new StorageClient({
+        endpoint: sc.endpoint,
+        region: sc.region,
+        bucket: sc.bucket,
+        accessKeyId: sc.access_key_id,
+        secretAccessKey: sc.secret_access_key,
+        publicUrl: sc.public_url,
+        forcePathStyle: sc.force_path_style,
+        publicUrlIncludesBucket: sc.public_url_includes_bucket,
+      });
+      await storageClient.ensureBucket();
+      this.storage = storageClient;
+
+      const apiKey = this.config.openrouter.api_key;
+      this.tools.register(new UploadFileTool(this.config.workspace, this.storage));
+      this.tools.register(new ImageGenTool(
+        apiKey,
+        resolveModel(this.config, "image"),
+        this.storage,
+      ));
+      this.tools.register(new TtsTool(
+        apiKey,
+        resolveModel(this.config, "tts"),
+        this.storage,
+      ));
+    } catch (err) {
+      console.error("Storage initialization error (media tools disabled):", err);
+    }
+
     await this.connectMcp();
 
     // Ensure memory directory structure exists
@@ -206,6 +254,26 @@ export class AgentLoop {
   private async processMessage(msg: InboundMessage): Promise<void> {
     if (msg.channel === "system") {
       return this.processSystemMessage(msg);
+    }
+
+    // Surface pending MCP auth errors to the user (once)
+    if (this._mcpAuthErrors.length > 0) {
+      const errors = this._mcpAuthErrors;
+      this._mcpAuthErrors = [];
+      const lines = errors.map((e) => {
+        const urlPart = e.authUrl
+          ? `\n  Authorize at: ${e.authUrl}`
+          : "";
+        return `- **${e.serverName}**: authentication required. Run \`containerclaw mcp-add\` to configure.${urlPart}`;
+      });
+      await this.bus.publishOutbound({
+        channel: msg.channel,
+        chatId: msg.chatId,
+        content:
+          `Some MCP servers require authentication and were skipped:\n${lines.join("\n")}\n\nTools from these servers are unavailable until auth is configured.`,
+        media: [],
+        metadata: msg.metadata,
+      });
     }
 
     this.setToolContext(msg.channel, msg.chatId, msg.metadata);
@@ -278,7 +346,9 @@ export class AgentLoop {
           }
         : undefined;
 
-      const result = await this.runAgentLoop(context, messages, onProgress);
+      const hasImages = msg.media.some((m) => detectMediaType(m) === "image");
+      const modelRole: ModelRole = hasImages ? "vision" : "chat";
+      const result = await this.runAgentLoop(context, messages, onProgress, modelRole);
       response = result.content;
     } catch (err) {
       console.error("Error in agent processing:", err);
@@ -374,13 +444,14 @@ export class AgentLoop {
     messages: Array<
       {
         role: string;
-        content: string | null;
+        content: MessageContent;
         tool_calls?: unknown[];
         tool_call_id?: string;
         name?: string;
       }
     >,
     onProgress?: (content: string) => Promise<void>,
+    modelRole: ModelRole = "chat",
   ): Promise<AgentLoopResult> {
     const maxIterations = this.config.agents.max_iterations;
     const tokenBudget = this.config.agents.token_budget;
@@ -409,7 +480,7 @@ export class AgentLoop {
       const response = await this.provider.chat({
         messages,
         tools: this.tools.getDefinitions(),
-        model: resolveModel(this.config, "chat"),
+        model: resolveModel(this.config, modelRole),
         maxTokens: this.config.agents.max_tokens,
         temperature: this.config.agents.temperature,
       });

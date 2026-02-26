@@ -16,7 +16,9 @@ bridge/
 containerclaw/
 tests/
 case/
-*.md
+# Exclude top-level markdown but keep src/ and defaults/ markdown
+/*.md
+docs/*.md
 workspace/
 !defaults/
 !defaults/**

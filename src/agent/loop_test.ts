@@ -1105,6 +1105,108 @@ Deno.test("AgentLoop - runAgentLoop works without token budget (backward compat)
 // Phase 2: Parallel tool execution in agent loop
 // ---------------------------------------------------------------------------
 
+Deno.test("AgentLoop - vision model role selected when message contains image media", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({
+      data_dir: tmpDir,
+      workspace: tmpDir,
+      agents: {
+        models: { heartbeat: "openrouter/free", vision: "vision-specific-model" },
+        temperature: 0.7,
+        max_tokens: 1000,
+        memory_window: 10,
+        consolidation_threshold: 50,
+        max_iterations: 5,
+        progress_updates: true,
+      },
+    });
+
+    let capturedModel: string | undefined;
+    const provider: LLMProvider = {
+      async chat(params) {
+        capturedModel = params.model;
+        return { content: "I see the image", toolCalls: [], finishReason: "stop", usage: {} };
+      },
+      getDefaultModel() { return "default-model"; },
+    };
+
+    const imageMsg: InboundMessage = {
+      channel: "slack",
+      senderId: "user1",
+      chatId: "chat1",
+      content: "What is this?",
+      timestamp: new Date(),
+      media: ["https://example.com/photo.jpg"],
+      metadata: {},
+    };
+
+    const { bus, published, stop: busStop } = makeFakeBus([imageMsg]);
+    const loop = new AgentLoop(bus, provider, config);
+
+    const runPromise = loop.run();
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        if (published.length > 0) { clearInterval(interval); resolve(); }
+      }, 10);
+    });
+    loop.stop();
+    busStop();
+    await runPromise;
+
+    assertEquals(capturedModel, "vision-specific-model");
+    await loop.closeMcp();
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("AgentLoop - chat model role selected when message has no image media", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  try {
+    const config = makeConfig({
+      data_dir: tmpDir,
+      workspace: tmpDir,
+      agents: {
+        models: { heartbeat: "openrouter/free", vision: "vision-specific-model", default: "chat-model" },
+        temperature: 0.7,
+        max_tokens: 1000,
+        memory_window: 10,
+        consolidation_threshold: 50,
+        max_iterations: 5,
+        progress_updates: true,
+      },
+    });
+
+    let capturedModel: string | undefined;
+    const provider: LLMProvider = {
+      async chat(params) {
+        capturedModel = params.model;
+        return { content: "Reply", toolCalls: [], finishReason: "stop", usage: {} };
+      },
+      getDefaultModel() { return "default-model"; },
+    };
+
+    const { bus, published, stop: busStop } = makeFakeBus([makeInboundMsg("Hello")]);
+    const loop = new AgentLoop(bus, provider, config);
+
+    const runPromise = loop.run();
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(() => {
+        if (published.length > 0) { clearInterval(interval); resolve(); }
+      }, 10);
+    });
+    loop.stop();
+    busStop();
+    await runPromise;
+
+    assertEquals(capturedModel, "chat-model");
+    await loop.closeMcp();
+  } finally {
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
 Deno.test("AgentLoop - parallel tool execution returns correct results for multiple tools", async () => {
   const tmpDir = await Deno.makeTempDir();
   try {

@@ -4,26 +4,11 @@
  * Audio is base64-encoded and sent as an `input_audio` content part.
  */
 
+import { encodeBase64 } from "@std/encoding/base64";
+import { detectAudioFormat } from "./media.ts";
+
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const TRANSCRIPTION_MODEL = "google/gemini-2.5-flash";
-
-/**
- * Detect audio format from URL file extension.
- */
-function detectFormat(url: string): string {
-  const ext = url.split(".").pop()?.split("?")[0]?.toLowerCase();
-  const formats: Record<string, string> = {
-    wav: "wav",
-    mp3: "mp3",
-    aiff: "aiff",
-    aac: "aac",
-    ogg: "ogg",
-    oga: "ogg",
-    flac: "flac",
-    m4a: "m4a",
-  };
-  return formats[ext ?? ""] ?? "ogg";
-}
 
 /**
  * Download audio from a URL and transcribe it via OpenRouter's chat completions API.
@@ -51,8 +36,8 @@ export async function transcribe(
       return "";
     }
     const audioBytes = new Uint8Array(await audioResponse.arrayBuffer());
-    const base64Audio = btoa(String.fromCharCode(...audioBytes));
-    const format = detectFormat(audioUrl);
+    const base64Audio = encodeBase64(audioBytes);
+    const format = detectAudioFormat(audioUrl);
 
     // 2. Send to OpenRouter as chat completion with audio input
     const response = await fetch(OPENROUTER_API_URL, {

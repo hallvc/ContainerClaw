@@ -12,6 +12,7 @@ import type { Tool } from "./base.ts";
 import { ToolRegistry } from "./base.ts";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { performOAuthFlow } from "./mcp_auth.ts";
+import type { MCPAuthPending } from "./mcp_auth.ts";
 
 export interface MCPServerConfig {
   command?: string;
@@ -162,6 +163,13 @@ async function connectWithAuth(
     await client.connect(transport);
   } catch (err) {
     if (err instanceof UnauthorizedError && opts.authProvider) {
+      // If the browser couldn't open, don't block waiting for a callback that won't come
+      // deno-lint-ignore no-explicit-any
+      const provider = opts.authProvider as any;
+      if (provider.browserOpenFailed) {
+        throw err;
+      }
+
       // SDK did discovery + redirect; wait for browser callback
       console.log(
         `MCP server '${name}': authorization required, waiting for browser auth...`,
@@ -236,8 +244,9 @@ export async function connectMcpServers(
   mcpServers: Record<string, MCPServerConfig>,
   registry: ToolRegistry,
   authProviders?: Record<string, OAuthClientProvider>,
-): Promise<Array<() => Promise<void>>> {
+): Promise<{ cleanups: Array<() => Promise<void>>; authErrors: MCPAuthPending[] }> {
   const cleanups: Array<() => Promise<void>> = [];
+  const authErrors: MCPAuthPending[] = [];
 
   for (const [name, cfg] of Object.entries(mcpServers)) {
     try {
@@ -272,6 +281,11 @@ export async function connectMcpServers(
       }
     } catch (err) {
       if (err instanceof UnauthorizedError) {
+        // Collect auth URL from provider if available
+        // deno-lint-ignore no-explicit-any
+        const provider = authProviders?.[name] as any;
+        const authUrl = provider?.lastAuthUrl ?? "";
+        authErrors.push({ serverName: name, authUrl });
         console.error(
           `MCP server '${name}': authentication required. Run 'containerclaw mcp-add' to configure auth.`,
         );
@@ -281,7 +295,8 @@ export async function connectMcpServers(
     }
   }
 
-  return cleanups;
+  return { cleanups, authErrors };
 }
 
 export { UnauthorizedError };
+export type { MCPAuthPending };

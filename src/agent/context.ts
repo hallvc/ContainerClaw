@@ -2,10 +2,12 @@ import { join } from "@std/path";
 import type { MemoryStore } from "./memory.ts";
 import type { SkillsLoader } from "./skills.ts";
 import type { ToolCallRequest } from "../providers/base.ts";
+import type { MessageContent } from "../providers/content.ts";
+import { buildContentParts } from "../providers/media.ts";
 
 interface ChatMessage {
   role: string;
-  content: string | null;
+  content: MessageContent;
   reasoning_content?: string | null;
   tool_calls?: Array<{
     id: string;
@@ -63,12 +65,8 @@ export class ContextBuilder {
 
     // Current user message (with optional media)
     if (media.length > 0) {
-      // For vision models, include image URLs
-      const mediaNote = media.map((url) => `[Attached: ${url}]`).join("\n");
-      this.messages.push({
-        role: "user",
-        content: `${currentMessage}\n\n${mediaNote}`,
-      });
+      const content = await buildContentParts(currentMessage, media);
+      this.messages.push({ role: "user", content });
     } else {
       this.messages.push({ role: "user", content: currentMessage });
     }

@@ -28,6 +28,9 @@ export const ModelRolesSchema = z.object({
   default: z.string().optional(),
   chat: z.string().optional(),
   memory: z.string().optional(),
+  vision: z.string().optional(),
+  image: z.string().optional(),
+  tts: z.string().optional(),
   heartbeat: z.string().default("openrouter/free"),
 });
 
@@ -69,6 +72,17 @@ export const CronConfigSchema = z.object({
   job_timeout_ms: z.number().int().positive().default(300_000),
 });
 
+export const StorageConfigSchema = z.object({
+  endpoint: z.string().default("http://rustfs:9000"),
+  region: z.string().default("us-east-1"),
+  bucket: z.string().default("containerclaw"),
+  access_key_id: z.string().default("minioadmin"),
+  secret_access_key: z.string().default("minioadmin"),
+  public_url: z.string().default("http://localhost:9000"),
+  force_path_style: z.boolean().default(true),
+  public_url_includes_bucket: z.boolean().default(true),
+});
+
 export const ConfigSchema = z.object({
   slack: SlackConfigSchema.default({}),
   email: EmailConfigSchema.default({}),
@@ -78,6 +92,7 @@ export const ConfigSchema = z.object({
   tools: ToolsConfigSchema.default({}),
   heartbeat: HeartbeatConfigSchema.default({}),
   cron: CronConfigSchema.default({}),
+  storage: StorageConfigSchema.default({}),
   workspace: z.string().default("/workspace"),
   data_dir: z.string().default("/data"),
 });
@@ -91,6 +106,7 @@ export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
 export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
 export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;
 export type CronConfig = z.infer<typeof CronConfigSchema>;
+export type StorageConfig = z.infer<typeof StorageConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 
 /** Workspace confinement is always enforced — not configurable. */
