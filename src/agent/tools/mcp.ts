@@ -31,6 +31,7 @@ export interface MCPServerConfig {
 /** Default MCP servers included out of the box. */
 const DEFAULT_MCP_SERVERS: Record<string, MCPServerConfig> = {
   exa: { url: "https://mcp.exa.ai/mcp" },
+  "exa-websets": { url: "https://websetsmcp.exa.ai/mcp" },
 };
 
 /** Load MCP server config from {workspace}/mcp_servers.json, merged with defaults. */

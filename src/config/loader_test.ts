@@ -181,6 +181,46 @@ Deno.test("resolveConfigPath - returns /data/config.json as default when no env 
 });
 
 // ---------------------------------------------------------------------------
+// EXA_API_KEY tests
+// ---------------------------------------------------------------------------
+
+Deno.test("buildRawConfig - EXA_API_KEY maps to exa.api_key", () => {
+  const env: Record<string, string | undefined> = {
+    EXA_API_KEY: "exa-test-key-abc",
+  };
+  const raw = buildRawConfig(env, emptyFile);
+  const config = ConfigSchema.parse(JSON.parse(JSON.stringify(raw)));
+  assertEquals(config.exa.api_key, "exa-test-key-abc");
+});
+
+Deno.test("buildRawConfig - exa.api_key defaults to empty string when EXA_API_KEY is absent", () => {
+  const raw = buildRawConfig(emptyEnv, emptyFile);
+  const config = ConfigSchema.parse(JSON.parse(JSON.stringify(raw)));
+  assertEquals(config.exa.api_key, "");
+});
+
+Deno.test("buildRawConfig - EXA_API_KEY env var overrides file config exa.api_key", () => {
+  const env: Record<string, string | undefined> = {
+    EXA_API_KEY: "env-exa-key",
+  };
+  const fileConfig: Record<string, unknown> = {
+    exa: { api_key: "file-exa-key" },
+  };
+  const raw = buildRawConfig(env, fileConfig);
+  const config = ConfigSchema.parse(JSON.parse(JSON.stringify(raw)));
+  assertEquals(config.exa.api_key, "env-exa-key");
+});
+
+Deno.test("buildRawConfig - file config exa.api_key used when EXA_API_KEY env var is absent", () => {
+  const fileConfig: Record<string, unknown> = {
+    exa: { api_key: "file-only-exa-key" },
+  };
+  const raw = buildRawConfig(emptyEnv, fileConfig);
+  const config = ConfigSchema.parse(JSON.parse(JSON.stringify(raw)));
+  assertEquals(config.exa.api_key, "file-only-exa-key");
+});
+
+// ---------------------------------------------------------------------------
 // .env integration test
 // ---------------------------------------------------------------------------
 

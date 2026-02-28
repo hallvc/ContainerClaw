@@ -108,7 +108,10 @@ Deno.test("MCPToolWrapper - integrates with ToolRegistry", async () => {
 
 Deno.test("loadMcpConfig - returns defaults when file missing", async () => {
   const result = await loadMcpConfig("/nonexistent/path");
-  assertEquals(result, { exa: { url: "https://mcp.exa.ai/mcp" } });
+  assertEquals(result, {
+    exa: { url: "https://mcp.exa.ai/mcp" },
+    "exa-websets": { url: "https://websetsmcp.exa.ai/mcp" },
+  });
 });
 
 Deno.test("loadMcpConfig - merges user config with defaults", async () => {
@@ -119,7 +122,11 @@ Deno.test("loadMcpConfig - merges user config with defaults", async () => {
   };
   Deno.writeTextFileSync(join(tmpDir, "mcp_servers.json"), JSON.stringify(config));
   const result = await loadMcpConfig(tmpDir);
-  assertEquals(result, { exa: { url: "https://mcp.exa.ai/mcp" }, ...config });
+  assertEquals(result, {
+    exa: { url: "https://mcp.exa.ai/mcp" },
+    "exa-websets": { url: "https://websetsmcp.exa.ai/mcp" },
+    ...config,
+  });
 });
 
 // --- loadMcpConfig with new fields ---
@@ -204,6 +211,14 @@ Deno.test("saveMcpConfig - preserves modified default servers", async () => {
   const parsed = JSON.parse(text);
   assertEquals(parsed.exa.headers, { "X-Key": "custom" });
 });
+
+// --- DEFAULT_MCP_SERVERS tests ---
+
+Deno.test("loadMcpConfig - defaults include exa-websets with correct URL", async () => {
+  const result = await loadMcpConfig("/nonexistent/path");
+  assertEquals(result["exa-websets"], { url: "https://websetsmcp.exa.ai/mcp" });
+});
+
 
 Deno.test("saveMcpConfig - preserves existing entries when updating one", async () => {
   const tmpDir = Deno.makeTempDirSync();

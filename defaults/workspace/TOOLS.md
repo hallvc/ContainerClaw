@@ -44,13 +44,45 @@ exec(command: str, working_dir: str = None) -> str
 
 ## Web Access
 
-### web_search_exa
-Search the web using [Exa](https://exa.ai/) (provided via MCP, enabled by default).
+### Exa Web Search (MCP — no API key required)
+
+The following tools are provided via the Exa MCP server and work out of the box:
+
+- **`web_search_exa`** — Search the web using Exa's neural search. Supports `auto` and `fast` search types.
+- **`get_code_context_exa`** — Find code examples, documentation, and programming solutions from GitHub, Stack Overflow, and official docs.
+- **`company_research_exa`** — Research companies with Exa's fine-tuned retrieval model.
+
+Additional MCP tools available (advanced search, deep search, crawling, LinkedIn search, deep researcher) are exposed when connected.
+
+### Exa Websets (MCP — no API key required)
+
+Websets tools are provided via the Exa Websets MCP server for building and enriching collections of web entities (companies, people, research papers):
+
+- Create, list, and manage websets
+- Import and enrich data with custom criteria
+- Set up monitors for continuous updates
+
+### Exa Direct API Tools (requires `EXA_API_KEY`)
+
+These native tools call the Exa REST API directly for tighter integration:
+
+#### exa_contents
+Get clean, parsed content from URLs using Exa's content extraction.
 ```
-web_search_exa(query: str) -> str
+exa_contents(urls: string[], maxCharacters?: number, livecrawl?: "fallback" | "preferred")
 ```
 
-Returns search results with titles, URLs, and content. No API key required (free tier). Additional Exa tools like `get_code_context_exa` and `company_research_exa` are also available.
+#### exa_answer
+Get a direct answer to a question with web citations.
+```
+exa_answer(query: string, numResults?: number)
+```
+
+#### exa_find_similar
+Find web pages similar to a given URL using semantic similarity.
+```
+exa_find_similar(url: string, numResults?: number, includeDomains?: string[], excludeDomains?: string[])
+```
 
 ### web_fetch
 Fetch and extract main content from a URL.

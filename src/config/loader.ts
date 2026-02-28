@@ -120,6 +120,12 @@ export function buildRawConfig(
         job_timeout_ms: parseOptionalInt(env.CONTAINERCLAW_CRON_JOB_TIMEOUT_MS),
       }),
     },
+    exa: {
+      ...((fileConfig.exa as Record<string, unknown>) ?? {}),
+      ...defined({
+        api_key: env.EXA_API_KEY,
+      }),
+    },
     storage: {
       ...((fileConfig.storage as Record<string, unknown>) ?? {}),
       ...defined({
@@ -207,6 +213,7 @@ export async function loadConfig(configPath?: string): Promise<Config> {
     S3_BUCKET: Deno.env.get("S3_BUCKET"),
     S3_ACCESS_KEY_ID: Deno.env.get("S3_ACCESS_KEY_ID"),
     S3_SECRET_ACCESS_KEY: Deno.env.get("S3_SECRET_ACCESS_KEY"),
+    EXA_API_KEY: Deno.env.get("EXA_API_KEY"),
     S3_PUBLIC_URL: Deno.env.get("S3_PUBLIC_URL"),
     S3_FORCE_PATH_STYLE: Deno.env.get("S3_FORCE_PATH_STYLE"),
     S3_PUBLIC_URL_INCLUDES_BUCKET: Deno.env.get("S3_PUBLIC_URL_INCLUDES_BUCKET"),

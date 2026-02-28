@@ -62,6 +62,10 @@ export const EmailConfigSchema = z.object({
   allow_from: z.array(z.string()).default([]),
 });
 
+export const ExaConfigSchema = z.object({
+  api_key: z.string().default(""),
+});
+
 export const ToolsConfigSchema = z.object({
   exec_timeout_ms: z.number().int().positive().default(60_000),
 });
@@ -104,6 +108,7 @@ export const ConfigSchema = z.object({
   tools: ToolsConfigSchema.default({}),
   heartbeat: HeartbeatConfigSchema.default({}),
   cron: CronConfigSchema.default({}),
+  exa: ExaConfigSchema.default({}),
   storage: StorageConfigSchema.default({}),
   workspace_health: WorkspaceHealthConfigSchema.default({}),
   workspace: z.string().default("/workspace"),
@@ -120,6 +125,7 @@ export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
 export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;
 export type CronConfig = z.infer<typeof CronConfigSchema>;
 export type StorageConfig = z.infer<typeof StorageConfigSchema>;
+export type ExaConfig = z.infer<typeof ExaConfigSchema>;
 export type WorkspaceHealthConfig = z.infer<typeof WorkspaceHealthConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 

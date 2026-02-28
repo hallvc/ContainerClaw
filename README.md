@@ -147,9 +147,11 @@ Configure via environment variables (see above) or `config.json`:
 
 ### Web Search
 
-Web search is provided by [Exa](https://exa.ai/) via MCP and is enabled by default — no API key required. The agent automatically connects to Exa's hosted MCP server and gains access to `web_search_exa` and other search tools.
+Web search is provided by [Exa](https://exa.ai/) via MCP and is enabled by default — no API key required. The agent automatically connects to Exa's hosted MCP server and gains access to `web_search_exa`, `get_code_context_exa`, `company_research_exa`, and Websets tools for building enriched entity collections.
 
-To use your own Exa API key for higher rate limits, configure the Exa MCP server in `mcp_servers.json`:
+Setting `EXA_API_KEY` in your `.env` enables additional native tools — `exa_contents`, `exa_answer`, and `exa_find_similar` — that call the Exa REST API directly.
+
+To use your own Exa API key for higher rate limits on MCP tools, configure the Exa MCP server in `mcp_servers.json`:
 
 ```json
 {

@@ -22,6 +22,10 @@ import { UploadFileTool } from "./tools/upload.ts";
 import { ImageGenTool } from "./tools/image_gen.ts";
 import { TtsTool } from "./tools/tts.ts";
 import { OpenRouterClient } from "../providers/openrouter_client.ts";
+import { ExaClient } from "../providers/exa_client.ts";
+import { ExaContentsTool } from "./tools/exa_contents.ts";
+import { ExaAnswerTool } from "./tools/exa_answer.ts";
+import { ExaFindSimilarTool } from "./tools/exa_find_similar.ts";
 import { StorageClient } from "../storage/s3.ts";
 import type { Storage } from "../storage/base.ts";
 import { ContainerclawOAuthProvider, openBrowser } from "./tools/mcp_auth.ts";
@@ -253,6 +257,14 @@ export class AgentLoop {
     }
 
     await this.connectMcp();
+
+    // Register Exa direct API tools (requires API key)
+    if (this.config.exa.api_key) {
+      const exaClient = new ExaClient(this.config.exa.api_key);
+      this.tools.register(new ExaContentsTool(exaClient));
+      this.tools.register(new ExaAnswerTool(exaClient));
+      this.tools.register(new ExaFindSimilarTool(exaClient));
+    }
 
     // Load workspace health state
     await this.healthState.load().catch((e) =>
