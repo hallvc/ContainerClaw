@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import { WebFetchTool, isPrivateHost } from "./web.ts";
 
 // --- URL validation tests ---
@@ -183,9 +183,150 @@ Deno.test("WebFetchTool - times out on slow responses", async () => {
     const tool = new WebFetchTool();
     await assertRejects(
       () => tool.execute({ url: "https://example.com/slow" }),
-      DOMException,
+      Error,
+      "Timed out fetching example.com",
     );
   } finally {
     globalThis.fetch = original;
+  }
+});
+
+// --- Scrapling integration tests ---
+
+Deno.test("WebFetchTool - uses Scrapling when available and returns markdown", async () => {
+  const originalCommand = Deno.Command;
+  const originalFetch = globalThis.fetch;
+
+  const expectedMarkdown = "# Hello World\n\nThis is a **test** page with [links](https://example.com).";
+
+  // Mock Deno.Command to simulate Scrapling writing a .md file
+  // deno-lint-ignore no-explicit-any
+  (Deno as any).Command = class MockCommand {
+    args: string[];
+    constructor(_cmd: string, opts: { args: string[] }) {
+      this.args = opts.args;
+    }
+    async output() {
+      // Find the output file path (4th arg: extract get <url> <file>)
+      const outFile = this.args[3];
+      await Deno.writeTextFile(outFile, expectedMarkdown);
+      return { success: true, code: 0, stdout: new Uint8Array(), stderr: new Uint8Array() };
+    }
+  };
+
+  // fetch should NOT be called when Scrapling succeeds
+  let fetchCalled = false;
+  globalThis.fetch = (() => {
+    fetchCalled = true;
+    return Promise.resolve(new Response("should not reach", { status: 200 }));
+  }) as typeof fetch;
+
+  try {
+    const tool = new WebFetchTool();
+    const result = await tool.execute({ url: "https://example.com/page" });
+    assertEquals(result, expectedMarkdown);
+    assertEquals(fetchCalled, false, "fetch should not be called when Scrapling succeeds");
+  } finally {
+    // deno-lint-ignore no-explicit-any
+    (Deno as any).Command = originalCommand;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("WebFetchTool - falls back to Readability when Scrapling fails", async () => {
+  const originalCommand = Deno.Command;
+  const originalFetch = globalThis.fetch;
+
+  // Mock Deno.Command to simulate Scrapling failure
+  // deno-lint-ignore no-explicit-any
+  (Deno as any).Command = class MockCommand {
+    constructor(_cmd: string, _opts: Record<string, unknown>) {}
+    output() {
+      return Promise.resolve({ success: false, code: 1, stdout: new Uint8Array(), stderr: new Uint8Array() });
+    }
+  };
+
+  // Mock fetch to return HTML (Readability fallback path)
+  globalThis.fetch = ((_input: string | URL | Request, _init?: RequestInit): Promise<Response> => {
+    return Promise.resolve(new Response(
+      "<html><head><title>Test</title></head><body><article><p>Fallback content here</p></article></body></html>",
+      { status: 200, headers: { "Content-Type": "text/html" } },
+    ));
+  }) as typeof fetch;
+
+  try {
+    const tool = new WebFetchTool();
+    const result = await tool.execute({ url: "https://example.com/page" });
+    assertStringIncludes(result, "Fallback content here");
+  } finally {
+    // deno-lint-ignore no-explicit-any
+    (Deno as any).Command = originalCommand;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("WebFetchTool - falls back to Readability when Scrapling is not installed", async () => {
+  const originalCommand = Deno.Command;
+  const originalFetch = globalThis.fetch;
+
+  // Mock Deno.Command to simulate "command not found"
+  // deno-lint-ignore no-explicit-any
+  (Deno as any).Command = class MockCommand {
+    constructor(_cmd: string, _opts: Record<string, unknown>) {}
+    output() {
+      return Promise.reject(new Deno.errors.NotFound("scrapling not found"));
+    }
+  };
+
+  globalThis.fetch = ((_input: string | URL | Request, _init?: RequestInit): Promise<Response> => {
+    return Promise.resolve(new Response(
+      "<html><head><title>Test</title></head><body><p>Plain text fallback</p></body></html>",
+      { status: 200, headers: { "Content-Type": "text/html" } },
+    ));
+  }) as typeof fetch;
+
+  try {
+    const tool = new WebFetchTool();
+    const result = await tool.execute({ url: "https://example.com/page" });
+    assertStringIncludes(result, "Plain text fallback");
+  } finally {
+    // deno-lint-ignore no-explicit-any
+    (Deno as any).Command = originalCommand;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("WebFetchTool - Scrapling output is truncated at MAX_OUTPUT", async () => {
+  const originalCommand = Deno.Command;
+  const originalFetch = globalThis.fetch;
+
+  const longContent = "x".repeat(15_000);
+
+  // deno-lint-ignore no-explicit-any
+  (Deno as any).Command = class MockCommand {
+    args: string[];
+    constructor(_cmd: string, opts: { args: string[] }) {
+      this.args = opts.args;
+    }
+    async output() {
+      const outFile = this.args[3];
+      await Deno.writeTextFile(outFile, longContent);
+      return { success: true, code: 0, stdout: new Uint8Array(), stderr: new Uint8Array() };
+    }
+  };
+
+  globalThis.fetch = (() => {
+    return Promise.resolve(new Response("unused", { status: 200 }));
+  }) as typeof fetch;
+
+  try {
+    const tool = new WebFetchTool();
+    const result = await tool.execute({ url: "https://example.com/long" });
+    assertEquals(result.length, 10_000 + "\n[content truncated]".length);
+    assertStringIncludes(result, "[content truncated]");
+  } finally {
+    // deno-lint-ignore no-explicit-any
+    (Deno as any).Command = originalCommand;
+    globalThis.fetch = originalFetch;
   }
 });

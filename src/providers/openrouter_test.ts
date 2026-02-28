@@ -367,7 +367,7 @@ Deno.test("OpenRouterProvider - chat handles fetch exception", async () => {
     });
 
     assertEquals(result.finishReason, "error");
-    assertEquals(result.content, "Failed to fetch");
+    assertEquals(result.content, "I'm having trouble connecting to the AI service right now. Please try again shortly.");
     assertEquals(result.toolCalls, []);
     assertEquals(result.usage, {});
   } finally {

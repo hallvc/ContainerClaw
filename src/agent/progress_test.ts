@@ -26,6 +26,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
       consolidation_threshold: 50,
       max_iterations: 5,
       progress_updates: true,
+      planning: { enabled: true },
     },
     email: {
       api_key: "",
@@ -262,6 +263,7 @@ Deno.test("progress - multi-iteration task sends exactly one progress message", 
         consolidation_threshold: 50,
         max_iterations: 5,
         progress_updates: true,
+        planning: { enabled: true },
       },
     });
     let callCount = 0;
@@ -382,6 +384,7 @@ Deno.test("progress - disabled when config.agents.progress_updates is false", as
         consolidation_threshold: 50,
         max_iterations: 5,
         progress_updates: false,
+        planning: { enabled: true },
       },
     });
     let callCount = 0;

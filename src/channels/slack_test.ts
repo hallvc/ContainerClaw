@@ -587,6 +587,162 @@ Deno.test("SlackChannel - send: handles missing slack metadata", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Thread monitoring
+// ---------------------------------------------------------------------------
+
+Deno.test("SlackChannel - trackThread/isThreadActive: tracks and detects active threads", () => {
+  const bus = new MessageBus();
+  const channel = new SlackChannel(makeConfig(), bus);
+  assertEquals((channel as any).isThreadActive("1111.2222"), false);
+  (channel as any).trackThread("1111.2222");
+  assertEquals((channel as any).isThreadActive("1111.2222"), true);
+});
+
+Deno.test("SlackChannel - isThreadActive: expired thread returns false", () => {
+  const bus = new MessageBus();
+  const channel = new SlackChannel(makeConfig(), bus);
+  (channel as any)._activeThreads.set("1111.2222", Date.now() - 3 * 60 * 60 * 1000); // 3 hours ago
+  assertEquals((channel as any).isThreadActive("1111.2222"), false);
+  // Should also be removed from the map
+  assertEquals((channel as any)._activeThreads.has("1111.2222"), false);
+});
+
+Deno.test("SlackChannel - pruneExpiredThreads: removes expired entries", () => {
+  const bus = new MessageBus();
+  const channel = new SlackChannel(makeConfig(), bus);
+  (channel as any)._activeThreads.set("fresh", Date.now());
+  (channel as any)._activeThreads.set("stale", Date.now() - 3 * 60 * 60 * 1000);
+  (channel as any).pruneExpiredThreads();
+  assertEquals((channel as any)._activeThreads.has("fresh"), true);
+  assertEquals((channel as any)._activeThreads.has("stale"), false);
+});
+
+Deno.test("SlackChannel - onSocketEvent: top-level mention tracks thread using message ts", async () => {
+  const bus = new MessageBus();
+  const channel = new SlackChannel(makeConfig({ groupPolicy: "mention" }), bus);
+  (channel as any).botUserId = "U_BOT";
+  (channel as any).webClient = { reactions: { add: async () => {} } };
+  const ack = async () => {};
+  // Top-level message: no thread_ts, only ts
+  await (channel as any).onSocketEvent(ack, {
+    type: "message",
+    user: "U_USER",
+    channel: "C_CHAN",
+    channel_type: "channel",
+    text: "<@U_BOT> help me",
+    ts: "1234.5678",
+  });
+  assertEquals(bus.inboundSize, 1);
+  // Thread should be tracked using the message's ts (effectiveThreadTs)
+  assertEquals((channel as any)._activeThreads.has("1234.5678"), true);
+});
+
+Deno.test("SlackChannel - onSocketEvent: mention in thread tracks thread", async () => {
+  const bus = new MessageBus();
+  const channel = new SlackChannel(makeConfig({ groupPolicy: "mention" }), bus);
+  (channel as any).botUserId = "U_BOT";
+  (channel as any).webClient = { reactions: { add: async () => {} } };
+  const ack = async () => {};
+  await (channel as any).onSocketEvent(ack, {
+    type: "message",
+    user: "U_USER",
+    channel: "C_CHAN",
+    channel_type: "channel",
+    text: "<@U_BOT> help me",
+    ts: "2222.3333",
+    thread_ts: "1111.2222",
+  });
+  assertEquals(bus.inboundSize, 1);
+  assertEquals((channel as any)._activeThreads.has("1111.2222"), true);
+});
+
+Deno.test("SlackChannel - onSocketEvent: active thread without mention forwards with threadMonitored", async () => {
+  const bus = new MessageBus();
+  const channel = new SlackChannel(makeConfig({ groupPolicy: "mention" }), bus);
+  (channel as any).botUserId = "U_BOT";
+  (channel as any).webClient = { reactions: { add: async () => {} } };
+  // Pre-track the thread
+  (channel as any).trackThread("1111.2222");
+  const ack = async () => {};
+  await (channel as any).onSocketEvent(ack, {
+    type: "message",
+    user: "U_USER",
+    channel: "C_CHAN",
+    channel_type: "channel",
+    text: "can you also check the logs?",
+    ts: "3333.4444",
+    thread_ts: "1111.2222",
+  });
+  assertEquals(bus.inboundSize, 1);
+  const msg = await bus.consumeInbound();
+  assertEquals(msg.content, "can you also check the logs?");
+  const slack = msg.metadata.slack as Record<string, unknown>;
+  assertEquals(slack.threadMonitored, true);
+});
+
+Deno.test("SlackChannel - onSocketEvent: unknown thread without mention is dropped", async () => {
+  const bus = new MessageBus();
+  const channel = new SlackChannel(makeConfig({ groupPolicy: "mention" }), bus);
+  (channel as any).botUserId = "U_BOT";
+  const ack = async () => {};
+  await (channel as any).onSocketEvent(ack, {
+    type: "message",
+    user: "U_USER",
+    channel: "C_CHAN",
+    channel_type: "channel",
+    text: "random thread message",
+    ts: "3333.4444",
+    thread_ts: "9999.0000",
+  });
+  assertEquals(bus.inboundSize, 0);
+});
+
+Deno.test("SlackChannel - onSocketEvent: open policy still responds without mention (no regression)", async () => {
+  const bus = new MessageBus();
+  const channel = new SlackChannel(makeConfig({ groupPolicy: "open" }), bus);
+  (channel as any).botUserId = "U_BOT";
+  (channel as any).webClient = { reactions: { add: async () => {} } };
+  const ack = async () => {};
+  await (channel as any).onSocketEvent(ack, {
+    type: "message",
+    user: "U_USER",
+    channel: "C_CHAN",
+    channel_type: "channel",
+    text: "hello everyone",
+    ts: "1234.5678",
+  });
+  assertEquals(bus.inboundSize, 1);
+  const msg = await bus.consumeInbound();
+  assertEquals(msg.content, "hello everyone");
+  const slack = msg.metadata.slack as Record<string, unknown>;
+  assertEquals(slack.threadMonitored, undefined);
+});
+
+Deno.test("SlackChannel - onSocketEvent: eyes reaction skipped for threadMonitored messages", async () => {
+  const bus = new MessageBus();
+  const channel = new SlackChannel(makeConfig({ groupPolicy: "mention" }), bus);
+  (channel as any).botUserId = "U_BOT";
+  let reactionCalled = false;
+  (channel as any).webClient = {
+    reactions: { add: async () => { reactionCalled = true; } },
+  };
+  // Pre-track the thread
+  (channel as any).trackThread("1111.2222");
+  const ack = async () => {};
+  await (channel as any).onSocketEvent(ack, {
+    type: "message",
+    user: "U_USER",
+    channel: "C_CHAN",
+    channel_type: "channel",
+    text: "follow up without mention",
+    ts: "3333.4444",
+    thread_ts: "1111.2222",
+  });
+  assertEquals(reactionCalled, false);
+  assertEquals(bus.inboundSize, 1);
+});
+
+// ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 

@@ -3,7 +3,7 @@ import type { MessageContent } from "./content.ts";
 import type { OpenRouterClient } from "./openrouter_client.ts";
 import { jsonrepair } from "jsonrepair";
 
-const INITIAL_RESPONSE_TIMEOUT_MS = 30_000; // 30s for initial HTTP connection
+const INITIAL_RESPONSE_TIMEOUT_MS = 60_000; // 60s for initial HTTP connection (reasoning models can be slow)
 const STREAM_CHUNK_TIMEOUT_MS = 120_000; // 2min idle between SSE chunks
 
 interface OpenRouterChoice {
@@ -296,8 +296,17 @@ export class OpenRouterProvider implements LLMProvider {
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      console.error(`OpenRouter API error: ${msg}`);
+      // Return a user-friendly message instead of raw error text
+      const friendly = (err instanceof DOMException && err.name === "TimeoutError")
+        ? "The AI service is taking too long to respond. Please try again in a moment."
+        : /timeout|timed out/i.test(msg)
+          ? "The AI service is taking too long to respond. Please try again in a moment."
+          : /network|fetch|ECONNREFUSED|ENOTFOUND/i.test(msg)
+            ? "I'm having trouble connecting to the AI service right now. Please try again shortly."
+            : "Sorry, I encountered a temporary issue. Please try again.";
       return {
-        content: msg,
+        content: friendly,
         toolCalls: [],
         finishReason: "error",
         usage: {},

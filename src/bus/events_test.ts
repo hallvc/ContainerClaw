@@ -22,3 +22,25 @@ Deno.test("getSessionKey - format", () => {
   });
   assertEquals(getSessionKey(msg), "slack:C456");
 });
+
+Deno.test("getSessionKey - includes thread_ts for Slack", () => {
+  const msg = createInboundMessage({
+    channel: "slack",
+    senderId: "U123",
+    chatId: "C456",
+    content: "test",
+    metadata: { slack: { thread_ts: "1234.5678" } },
+  });
+  assertEquals(getSessionKey(msg), "slack:C456:1234.5678");
+});
+
+Deno.test("getSessionKey - no thread_ts for non-Slack channels", () => {
+  const msg = createInboundMessage({
+    channel: "telegram",
+    senderId: "U123",
+    chatId: "C456",
+    content: "test",
+    metadata: { slack: { thread_ts: "1234.5678" } },
+  });
+  assertEquals(getSessionKey(msg), "telegram:C456");
+});

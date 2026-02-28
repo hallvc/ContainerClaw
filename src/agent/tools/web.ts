@@ -1,5 +1,8 @@
 /**
  * Web fetch tool.
+ *
+ * Primary: uses Scrapling CLI to extract Markdown (better for LLM consumption).
+ * Fallback: fetch + Readability for plain text (when Scrapling is unavailable).
  */
 
 import { Readability } from "@mozilla/readability";
@@ -7,6 +10,8 @@ import { parseHTML } from "linkedom";
 import type { Tool } from "./base.ts";
 
 const MAX_OUTPUT = 10_000;
+const SCRAPLING_TIMEOUT_MS = 28_000;
+const SCRAPLING_CLI_TIMEOUT_S = "25";
 
 /**
  * Returns true if the given hostname resolves to a private/internal network
@@ -70,7 +75,8 @@ export function isPrivateHost(hostname: string): boolean {
 
 export class WebFetchTool implements Tool {
   name = "web_fetch";
-  description = "Fetch and extract the main text content from a URL.";
+  description =
+    "Fetch and extract the main content from a URL as Markdown (or plain text fallback).";
   parameters = {
     type: "object",
     properties: {
@@ -83,14 +89,85 @@ export class WebFetchTool implements Tool {
     const url = String(args.url);
     const parsed = new URL(url);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new Error(`URL scheme must be http or https, got "${parsed.protocol}"`);
+      throw new Error(
+        `URL scheme must be http or https, got "${parsed.protocol}"`,
+      );
     }
     if (isPrivateHost(parsed.hostname)) {
-      throw new Error("Blocked: URL points to a private/internal network address (SSRF protection).");
+      throw new Error(
+        "Blocked: URL points to a private/internal network address (SSRF protection).",
+      );
     }
-    const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+
+    // Try Scrapling first (produces Markdown)
+    const markdown = await this.tryScrapling(url);
+    if (markdown !== null) {
+      return markdown.length > MAX_OUTPUT
+        ? markdown.slice(0, MAX_OUTPUT) + "\n[content truncated]"
+        : markdown;
+    }
+
+    // Fallback: fetch + Readability (plain text)
+    return await this.fetchWithReadability(url, parsed);
+  }
+
+  private async tryScrapling(url: string): Promise<string | null> {
+    const tmpFile = `/tmp/scrapling-${crypto.randomUUID().slice(0, 8)}.md`;
+    try {
+      const cmd = new Deno.Command("scrapling", {
+        args: [
+          "extract",
+          "get",
+          url,
+          tmpFile,
+          "--timeout",
+          SCRAPLING_CLI_TIMEOUT_S,
+        ],
+        stdout: "piped",
+        stderr: "piped",
+        signal: AbortSignal.timeout(SCRAPLING_TIMEOUT_MS),
+      });
+      const output = await cmd.output();
+      if (!output.success) return null;
+      const content = await Deno.readTextFile(tmpFile);
+      return content.trim() || null;
+    } catch {
+      return null;
+    } finally {
+      try {
+        await Deno.remove(tmpFile);
+      } catch { /* ignore cleanup errors */ }
+    }
+  }
+
+  private async fetchWithReadability(
+    url: string,
+    parsed: URL,
+  ): Promise<string> {
+    let response: Response;
+    try {
+      response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "TimeoutError") {
+        throw new Error(
+          `Timed out fetching ${parsed.hostname} (30s limit). The site may be slow or unresponsive — skip this URL or try again later.`,
+          { cause: err },
+        );
+      }
+      if (err instanceof TypeError) {
+        throw new Error(
+          `Network error fetching ${parsed.hostname}: ${err.message}`,
+          { cause: err },
+        );
+      }
+      throw err;
+    }
     if (!response.ok) {
-      throw new Error(`Fetch error: ${response.status} ${response.statusText}`);
+      // Consume body to release the underlying TCP connection/FD
+      try { await response.body?.cancel(); } catch { /* ignore */ }
+      throw new Error(
+        `Fetch error: ${response.status} ${response.statusText}`,
+      );
     }
 
     const html = await response.text();

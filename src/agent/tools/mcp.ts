@@ -204,11 +204,15 @@ async function connectUrlServer(
   const url = new URL(cfg.url!);
   const opts = buildTransportOpts(cfg, authProvider);
 
+  // Cast opts to satisfy MCP SDK transport types (Deno RequestInit vs undici-types mismatch)
+  // deno-lint-ignore no-explicit-any
+  const transportOpts = opts as any;
+
   // If transport is forced to SSE, use it directly
   if (cfg.transport === "sse") {
     return connectWithAuth(
       name, url, opts,
-      () => new SSEClientTransport(url, opts),
+      () => new SSEClientTransport(url, transportOpts),
       registry,
     );
   }
@@ -217,7 +221,7 @@ async function connectUrlServer(
   try {
     return await connectWithAuth(
       name, url, opts,
-      () => new StreamableHTTPClientTransport(url, opts),
+      () => new StreamableHTTPClientTransport(url, transportOpts),
       registry,
     );
   } catch (err) {
@@ -233,7 +237,7 @@ async function connectUrlServer(
     );
     return connectWithAuth(
       name, url, opts,
-      () => new SSEClientTransport(url, opts),
+      () => new SSEClientTransport(url, transportOpts),
       registry,
     );
   }

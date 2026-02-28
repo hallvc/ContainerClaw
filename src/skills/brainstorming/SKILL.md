@@ -5,14 +5,14 @@ description: "Collaborative design and brainstorming before implementation. Use 
 
 # Brainstorming
 
-Think before building. This skill ensures a design phase happens before any implementation.
+Think before building. Use this approach for tasks with multiple valid solutions.
 
 ## When to Use
 
-- User asks to "build", "create", "implement", or "add" something non-trivial
 - The task has multiple valid approaches
 - Requirements are vague or incomplete
-- The task will take more than a few minutes to implement
+- The outcome depends heavily on user preferences
+- The user asks to "brainstorm", "explore options", or "think through" something
 
 ## Process
 
@@ -44,7 +44,7 @@ What about edge cases? Should it be mobile-responsive?"
 
 ### Step 3: Propose Approaches
 
-Present 2-3 options with tradeoffs. Structure each option clearly:
+Present 2-3 options with tradeoffs:
 
 ```
 ### Option A: [Name]
@@ -53,47 +53,19 @@ Present 2-3 options with tradeoffs. Structure each option clearly:
 **Cons:** [bullets]
 ```
 
-After presenting options, ask for the user's reaction. Do not present all options at once if there are more than 3 -- chunk them.
-
 End with a recommendation and why.
 
 ### Step 4: Present Design
 
-Break the design into digestible sections. Present each section and get acknowledgment before moving to the next. Scale detail to complexity:
+Break the design into digestible sections. Scale detail to complexity:
 
 - Small feature: 2-3 sections
 - Medium feature: 4-6 sections
 - Large project: save full design to a document
 
-### Step 5: Get Approval
+### Step 5: Plan and Confirm
 
-Before any implementation:
-
-1. Summarize the agreed design
-2. Ask for explicit approval: "Ready to start building?"
-3. Save the design to the workspace if it's substantial
-
-## Hard Gate
-
-**No implementation until the user approves the design.** This applies regardless of how simple the task seems. Even "simple" tasks benefit from a 30-second design check.
-
-Exceptions:
-- User explicitly says "just do it" or "skip the design"
-- The task is purely mechanical with zero design decisions (rename a variable, fix a typo)
-
-## Design Output
-
-For substantial designs, save to the workspace:
-
-```
-docs/designs/YYYY-MM-DD-<topic>.md
-```
-
-Include:
-- Goal (1-2 sentences)
-- Approach chosen (with rationale)
-- Key decisions made during brainstorming
-- Implementation steps (high-level)
+Once the design is agreed, present it as a numbered plan for confirmation. The planning protocol will handle the confirm/execute/progress flow from there.
 
 ## Anti-patterns
 
@@ -101,5 +73,5 @@ Include:
 |-----------|-------------|
 | "This is too simple to design" | Simple tasks with wrong assumptions waste more time than 30 seconds of alignment |
 | "I'll design as I go" | You'll commit to the first approach and miss better options |
-| "The user said 'build X' so I should just build X" | "Build X" is what, not how -- the design decisions still need to be made |
+| "The user said 'build X' so I should just build X" | "Build X" is what, not how — the design decisions still need to be made |
 | Asking 5 questions at once | Decision fatigue leads to shallow answers |

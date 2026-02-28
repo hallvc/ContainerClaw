@@ -26,6 +26,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
       consolidation_threshold: 50,
       max_iterations: 5,
       progress_updates: true,
+      planning: { enabled: true },
     },
     email: {
       api_key: "",
@@ -271,6 +272,7 @@ Deno.test("AgentLoop - processDirect stops at maxIterations with fallback messag
         consolidation_threshold: 50,
         max_iterations: 2,
         progress_updates: true,
+        planning: { enabled: true },
       },
     });
     // Always returns tool calls so we never finish naturally
@@ -528,6 +530,7 @@ Deno.test("AgentLoop - memory consolidation triggers when message count exceeds 
         consolidation_threshold: 2,
         max_iterations: 5,
         progress_updates: true,
+        planning: { enabled: true },
       },
     });
 
@@ -864,6 +867,7 @@ Deno.test("AgentLoop - memory consolidation handles provider errors gracefully",
         consolidation_threshold: 2,
         max_iterations: 5,
         progress_updates: true,
+        planning: { enabled: true },
       },
     });
 
@@ -1052,6 +1056,7 @@ Deno.test("AgentLoop - runAgentLoop stops when token budget exceeded", async () 
         max_iterations: 10,
         token_budget: 1000,
         progress_updates: true,
+        planning: { enabled: true },
       },
     });
     let callCount = 0;
@@ -1119,6 +1124,7 @@ Deno.test("AgentLoop - vision model role selected when message contains image me
         consolidation_threshold: 50,
         max_iterations: 5,
         progress_updates: true,
+        planning: { enabled: true },
       },
     });
 
@@ -1175,6 +1181,7 @@ Deno.test("AgentLoop - chat model role selected when message has no image media"
         consolidation_threshold: 50,
         max_iterations: 5,
         progress_updates: true,
+        planning: { enabled: true },
       },
     });
 

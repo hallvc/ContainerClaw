@@ -61,7 +61,19 @@ export class ExecTool implements Tool {
       signal: AbortSignal.timeout(timeoutMs),
     });
 
-    const { stdout, stderr } = await cmd.output();
+    let output: Deno.CommandOutput;
+    try {
+      output = await cmd.output();
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "TimeoutError") {
+        throw new Error(
+          `Command timed out after ${timeoutMs / 1000}s: ${command.slice(0, 80)}`,
+          { cause: err },
+        );
+      }
+      throw err;
+    }
+    const { stdout, stderr } = output;
 
     const decoder = new TextDecoder();
     const out = decoder.decode(stdout);

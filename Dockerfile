@@ -19,7 +19,8 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     openpyxl \
     pandas \
     reportlab \
-    Pillow
+    Pillow \
+    scrapling
 
 WORKDIR /app
 

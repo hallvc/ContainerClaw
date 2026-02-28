@@ -33,6 +33,11 @@ export class SlackChannel extends BaseChannel {
   private socketClient: SocketModeClient | null = null;
   private botUserId: string | null = null;
 
+  // Tracks threads where the bot has been engaged
+  // Key: thread_ts, Value: last activity timestamp (ms)
+  private _activeThreads = new Map<string, number>();
+  private _threadExpiryMs = 2 * 60 * 60 * 1000; // 2 hours
+
   constructor(config: SlackConfig, bus: MessageBus) {
     super(bus);
     this.config = config;
@@ -79,6 +84,7 @@ export class SlackChannel extends BaseChannel {
     await this.socketClient.start();
 
     while (this._running) {
+      this.pruneExpiredThreads();
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
@@ -220,7 +226,7 @@ export class SlackChannel extends BaseChannel {
     const text = (event.text as string) ?? "";
 
     console.debug(
-      `Slack event: type=${eventType} subtype=${event.subtype} user=${senderId} channel=${chatId} channel_type=${event.channel_type} text=${text.slice(0, 80)}`,
+      `Slack event: type=${eventType} subtype=${event.subtype} user=${senderId} channel=${chatId} channel_type=${event.channel_type} thread_ts=${event.thread_ts ?? "none"} text=${text.slice(0, 80)}`,
     );
 
     if (!senderId || !chatId) {
@@ -233,27 +239,46 @@ export class SlackChannel extends BaseChannel {
       return;
     }
 
-    if (
-      channelType !== "im" &&
-      !this.shouldRespondInChannel(text, chatId)
-    ) {
-      return;
+    // Determine thread context
+    const threadTs = (event.thread_ts as string) || undefined;
+    const messageTs = event.ts as string;
+    const effectiveThreadTs = threadTs || messageTs;
+    const isMentioned = this.botUserId !== null && text.includes(`<@${this.botUserId}>`);
+    let isThreadMonitored = false;
+
+    if (channelType !== "im") {
+      if (this.shouldRespondInChannel(text, chatId)) {
+        // Normal path: bot was @mentioned or groupPolicy is "open"/"allowlist"
+        // Track thread so we monitor replies (uses effectiveThreadTs to handle
+        // both top-level mentions where thread_ts is absent and in-thread mentions)
+        if (isMentioned) {
+          this.trackThread(effectiveThreadTs);
+        }
+      } else if (threadTs && this.isThreadActive(threadTs)) {
+        // Not mentioned and shouldRespondInChannel returned false,
+        // but this is an active monitored thread — forward with flag
+        isThreadMonitored = true;
+      } else {
+        // Not mentioned, not in an active thread, policy says no — ignore
+        return;
+      }
     }
 
     const strippedText = this.stripBotMention(text);
-    const threadTs = (event.thread_ts as string) || (event.ts as string);
 
-    // Add :eyes: reaction to the triggering message (best-effort)
-    try {
-      if (this.webClient && event.ts) {
-        await this.webClient.reactions.add({
-          channel: chatId,
-          name: "eyes",
-          timestamp: event.ts as string,
-        });
+    // Add :eyes: reaction only for directly-addressed messages (not thread-monitored)
+    if (!isThreadMonitored) {
+      try {
+        if (this.webClient && event.ts) {
+          await this.webClient.reactions.add({
+            channel: chatId,
+            name: "eyes",
+            timestamp: event.ts as string,
+          });
+        }
+      } catch (e) {
+        console.debug(`Slack reactions.add failed: ${e}`);
       }
-    } catch (e) {
-      console.debug(`Slack reactions.add failed: ${e}`);
     }
 
     await this.handleMessage({
@@ -263,9 +288,10 @@ export class SlackChannel extends BaseChannel {
       metadata: {
         slack: {
           event,
-          thread_ts: threadTs,
+          thread_ts: effectiveThreadTs,
           channel_type: channelType,
-          message_ts: event.ts as string,
+          message_ts: messageTs,
+          threadMonitored: isThreadMonitored || undefined,
         },
       },
     });
@@ -306,6 +332,31 @@ export class SlackChannel extends BaseChannel {
       return this.config.groupAllowFrom.includes(chatId);
     }
     return false;
+  }
+
+  private trackThread(threadTs: string): void {
+    this._activeThreads.set(threadTs, Date.now());
+  }
+
+  private isThreadActive(threadTs: string): boolean {
+    const lastActivity = this._activeThreads.get(threadTs);
+    if (!lastActivity) return false;
+    if (Date.now() - lastActivity > this._threadExpiryMs) {
+      this._activeThreads.delete(threadTs);
+      return false;
+    }
+    // Refresh activity timestamp
+    this._activeThreads.set(threadTs, Date.now());
+    return true;
+  }
+
+  private pruneExpiredThreads(): void {
+    const now = Date.now();
+    for (const [ts, lastActivity] of this._activeThreads) {
+      if (now - lastActivity > this._threadExpiryMs) {
+        this._activeThreads.delete(ts);
+      }
+    }
   }
 
   private stripBotMention(text: string): string {

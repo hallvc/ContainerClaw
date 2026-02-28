@@ -36,6 +36,10 @@ export const ModelRolesSchema = z.object({
 
 export type ModelRole = keyof z.infer<typeof ModelRolesSchema>;
 
+export const PlanningConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+});
+
 export const AgentsConfigSchema = z.object({
   models: ModelRolesSchema.default({}),
   temperature: z.number().min(0).max(2).default(0.7),
@@ -45,6 +49,7 @@ export const AgentsConfigSchema = z.object({
   max_iterations: z.number().int().positive().default(20),
   token_budget: z.number().int().positive().optional(),
   progress_updates: z.boolean().default(true),
+  planning: PlanningConfigSchema.default({}),
 });
 
 export const EmailConfigSchema = z.object({

@@ -164,4 +164,97 @@ export class ContextBuilder {
   getMessages(): ChatMessage[] {
     return this.messages;
   }
+
+  /**
+   * Inject planning-mode instructions into the system prompt.
+   * Called during the planning loop to tell the LLM to assess complexity and
+   * either execute directly (Tier 1) or present a plan and stop (Tier 2+).
+   */
+  addPlanningInstructions(forceTier4: boolean): void {
+    const instructions = forceTier4
+      ? PLANNING_INSTRUCTIONS_TIER4
+      : PLANNING_INSTRUCTIONS_AUTO;
+    // Prepend as a system-level message so it comes before conversation history
+    this.messages.splice(1, 0, { role: "system", content: instructions });
+  }
+
+  /**
+   * Inject execution-mode instructions with the approved plan.
+   * Called during the execution loop after the user confirms a plan.
+   */
+  addExecutionInstructions(planText: string): void {
+    const instructions = EXECUTION_INSTRUCTIONS.replace("{{PLAN}}", planText);
+    this.messages.splice(1, 0, { role: "system", content: instructions });
+  }
+
+  /**
+   * Inject plan-modification instructions when the user wants changes to a proposed plan.
+   */
+  addPlanModificationInstructions(originalPlan: string, userFeedback: string): void {
+    const instructions = PLAN_MODIFICATION_INSTRUCTIONS
+      .replace("{{PLAN}}", originalPlan)
+      .replace("{{FEEDBACK}}", userFeedback);
+    this.messages.splice(1, 0, { role: "system", content: instructions });
+  }
 }
+
+// --- Planning prompt fragments ---
+
+const PLANNING_INSTRUCTIONS_AUTO = `## Task Planning Protocol
+
+Before executing any tools, assess the complexity of the user's request:
+
+**Tier 1 (Direct Execution):** The task needs 0-1 tool calls and has one clear answer.
+→ Proceed normally. Execute tools and respond.
+
+**Tier 2 (Plan Preview):** The task needs 2-3 tool calls with a well-defined goal.
+→ Use the \`message\` tool to send the user a numbered plan (3-6 steps). End with "Reply 'go' to start, or tell me what to change." Then STOP — do not execute any other tools.
+
+**Tier 3 (Interactive Plan):** The task is open-ended, has many valid approaches, or depends heavily on user preferences.
+→ Use the \`message\` tool to ask 1-2 clarifying questions first. Do NOT batch multiple questions. If you already have enough context, send a numbered plan with key decisions highlighted. Then STOP.
+
+**How to decide:**
+- 0-1 tool calls needed, one right answer → Tier 1
+- 2-3 tool calls, clear goal → Tier 2
+- 4+ tool calls, open-ended, or 2+ user decisions needed → Tier 3
+- When uncertain, tier UP (prefer showing a plan)
+
+**Important:** For Tier 2-3, after sending the plan via the \`message\` tool, produce a short text response like "I've sent you a plan to review." and make NO further tool calls. Wait for user confirmation before executing.`;
+
+const PLANNING_INSTRUCTIONS_TIER4 = `## Task Planning Protocol
+
+The user has explicitly requested a plan. You MUST present a plan before taking any action.
+
+Use the \`message\` tool to send the user a numbered plan (3-6 steps). For complex tasks, highlight key decisions the user should weigh in on.
+
+End the plan with: "Reply 'go' to start, or tell me what to change."
+
+After sending the plan, produce a short text response and make NO further tool calls. Wait for user confirmation.`;
+
+const EXECUTION_INSTRUCTIONS = `## Executing Approved Plan
+
+The user has approved the following plan. Execute it step by step.
+
+{{PLAN}}
+
+**Instructions:**
+- Work through the steps in order.
+- After completing each major step, use the \`message\` tool to send a brief progress update: "Step N done: [brief result]. Moving to step N+1..."
+- If you discover something unexpected that changes the approach for the CURRENT step, adapt and notify: "Heads up: [what changed] so I [what you did instead]."
+- If you discover something that changes the OVERALL plan (affects multiple remaining steps), use the \`message\` tool to pause and present options to the user. Then STOP and wait.
+- Do NOT silently skip steps or change the approach without notifying the user.`;
+
+const PLAN_MODIFICATION_INSTRUCTIONS = `## Plan Modification
+
+The user was shown this plan:
+
+{{PLAN}}
+
+They responded with this feedback:
+
+{{FEEDBACK}}
+
+Update the plan based on their feedback. Send the revised plan using the \`message\` tool with the same numbered format. End with "Reply 'go' to start, or tell me what to change."
+
+After sending the revised plan, produce a short text response and make NO further tool calls.`;
+

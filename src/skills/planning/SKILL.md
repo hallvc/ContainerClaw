@@ -1,118 +1,62 @@
 ---
 name: planning
-description: "Create structured implementation plans for multi-step tasks. Use when a task has 3+ steps, involves multiple files, or benefits from written planning before execution. Produces step-by-step plans with file paths, code snippets, and verification commands."
+description: "Plan multi-step tasks before executing. The planning protocol automatically detects complex tasks and presents a plan for user approval before proceeding."
 ---
 
-# Implementation Planning
+# Task Planning
 
-For complex tasks, a written plan prevents the agent from losing track, going off-course, or missing steps.
+Complex tasks benefit from a plan-then-execute approach. The planning protocol is built into the agent loop and handles this automatically.
 
-## When to Plan
+## How It Works
 
-- Task involves 3+ implementation steps
-- Multiple files need to be created or modified
-- Task has dependencies between steps (order matters)
-- User explicitly asks to "plan first" or "make a plan"
+The agent assesses each request's complexity and decides whether to:
 
-## When to Skip
+- **Execute directly** (simple tasks — 0-1 tool calls, one right answer)
+- **Show a plan first** (multi-step tasks — 2+ tool calls or user decisions needed)
 
-- Single-file changes with obvious scope
-- Quick fixes or typo corrections
-- User says "just do it"
+When a plan is shown, the user can:
+- **Confirm** ("go", "yes", "looks good") — agent executes the plan with progress updates
+- **Modify** ("change step 3 to...", "also add...") — agent revises and re-presents
+- **Reject** ("nevermind", "cancel") — plan is discarded
 
-## Plan Structure
+## Plan Format
 
-### Header
-
-```markdown
-# Plan: [Feature Name]
-
-**Goal:** [1-2 sentences]
-**Tech stack:** [relevant technologies]
-**Estimated steps:** [count]
-```
-
-### Steps
-
-Each step is one atomic action. Structure:
-
-```markdown
-## Step 1: [Action verb] [What]
-
-**File:** `path/to/file.ext` (create | modify | test)
-
-**What:** [1-2 sentences describing the change]
-
-**Code:**
-\```language
-// exact code to write or change
-\```
-
-**Verify:**
-\```bash
-command to verify this step worked
-\```
-Expected output: [what success looks like]
-```
-
-### Step design rules
-
-- **One action per step** -- "write the test" and "run the test" are separate steps
-- **Exact file paths** -- relative to workspace root
-- **Complete code** -- include full function/class, not just the diff
-- **Explicit verification** -- every 2-3 steps should have a verify command
-- **Commit points** -- mark natural commit boundaries
-
-## Execution
-
-### Batch execution
-
-Execute steps in batches of 3-5, then pause for review:
+Plans are numbered steps sent as chat messages:
 
 ```
-Steps 1-3: [implement]
-→ Verify batch
-→ Report progress to user
-→ Proceed if everything passes
+Here's my plan:
 
-Steps 4-6: [implement]
-→ Verify batch
-→ Report progress
-→ ...
+1. [First step]
+2. [Second step]
+3. [Third step]
+
+Key decisions for you:
+- [Decision the user should weigh in on]
+
+Reply "go" to start, or tell me what to change.
 ```
 
-### Stop conditions
+## Progress Updates
 
-Stop and ask the user if:
-- A step fails and the fix isn't obvious
-- Requirements are unclear for the next batch
-- You discover the plan needs significant changes
-- Dependencies are missing
-
-### Plan updates
-
-If the plan needs to change during execution:
-1. Note what changed and why
-2. Update remaining steps
-3. Inform the user of the change
-
-## Saving Plans
-
-Save plans to the workspace:
+During execution, report progress after each major step:
 
 ```
-docs/plans/YYYY-MM-DD-<feature-name>.md
+Step 1 done: [brief result]. Moving to step 2...
 ```
 
-This enables:
-- Resuming work across sessions
-- Reviewing what was planned vs. what was built
-- Reusing plans for similar features
+## Mid-Course Corrections
 
-## Plan Quality Checklist
+- **Small changes**: Adapt and notify. "Heads up: [what changed] so I [what I did instead]."
+- **Big changes**: Pause and present options. Let the user decide before continuing.
+- **Never** silently skip steps or change approach without telling the user.
 
-- [ ] Every step has an exact file path
-- [ ] No step requires more than 5 minutes of work
-- [ ] Verification steps are included every 2-3 implementation steps
-- [ ] Dependencies between steps are ordered correctly
-- [ ] The plan addresses error handling, not just the happy path
+## When to Force a Plan
+
+If the user says "plan this", "plan first", or "show me a plan", always present a plan regardless of complexity.
+
+## Self-Escalation
+
+If you start executing and realize the task is more complex than expected:
+1. Stop
+2. Tell the user: "This is more involved than I expected — let me put together a plan first."
+3. Present a plan and wait for confirmation

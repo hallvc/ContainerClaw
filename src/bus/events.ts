@@ -34,5 +34,10 @@ export function createInboundMessage(
 }
 
 export function getSessionKey(msg: InboundMessage): string {
+  const slackMeta = msg.metadata?.slack as Record<string, unknown> | undefined;
+  const threadTs = slackMeta?.thread_ts as string | undefined;
+  if (msg.channel === "slack" && threadTs) {
+    return `${msg.channel}:${msg.chatId}:${threadTs}`;
+  }
   return `${msg.channel}:${msg.chatId}`;
 }

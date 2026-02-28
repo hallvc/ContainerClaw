@@ -36,6 +36,13 @@ import type { Config, ModelRole } from "../config/schema.ts";
 import { resolveModel } from "../config/models.ts";
 import type { MessageContent } from "../providers/content.ts";
 import { detectMediaType } from "../providers/media.ts";
+import {
+  type PlanState,
+  isPlanConfirmation,
+  isPlanRejection,
+  isPlanRequest,
+  createPlanState,
+} from "./planning.ts";
 
 interface AgentLoopResult {
   content: string;
@@ -317,24 +324,11 @@ export class AgentLoop {
     // Record user message in session
     session.addMessage("user", msg.content);
 
+    const planState = session.metadata.plan as PlanState | undefined;
+    const planningEnabled = this.config.agents.planning?.enabled !== false;
+
     let response: string;
     try {
-      // Build context
-      const context = new ContextBuilder(
-        this.config.workspace,
-        this.memory,
-        this.skills,
-      );
-      const history = session.getHistory(this.config.agents.memory_window);
-      // Remove the last message from history since we'll add it as the current message
-      const pastHistory = history.slice(0, -1);
-      const messages = await context.buildMessages(
-        pastHistory,
-        msg.content,
-        msg.media,
-      );
-
-      // Run agent iteration loop
       const onProgress = this.config.agents.progress_updates !== false
         ? async (content: string) => {
             await this.bus.publishOutbound({
@@ -349,11 +343,90 @@ export class AgentLoop {
 
       const hasImages = msg.media.some((m) => detectMediaType(m) === "image");
       const modelRole: ModelRole = hasImages ? "vision" : "chat";
-      const result = await this.runAgentLoop(context, messages, onProgress, modelRole);
-      response = result.content;
+
+      if (planningEnabled && planState?.status === "proposed") {
+        // --- User is responding to a proposed plan ---
+        if (isPlanConfirmation(msg.content)) {
+          // Approved: run execution loop with plan as instructions
+          (session.metadata.plan as PlanState).status = "executing";
+          this.sessions.save(session);
+
+          const context = new ContextBuilder(this.config.workspace, this.memory, this.skills);
+          const history = session.getHistory(this.config.agents.memory_window);
+          const pastHistory = history.slice(0, -1);
+          const messages = await context.buildMessages(pastHistory, msg.content, msg.media);
+          context.addExecutionInstructions(planState.planText);
+
+          const result = await this.runAgentLoop(context, messages, onProgress, modelRole, true);
+          response = result.content;
+
+          // Mark plan as completed
+          (session.metadata.plan as PlanState).status = "completed";
+        } else if (isPlanRejection(msg.content)) {
+          // Rejected: clear plan and respond normally
+          delete session.metadata.plan;
+          this.sessions.save(session);
+          response = "No problem, plan discarded. What would you like to do instead?";
+        } else {
+          // Modification: re-run planning loop with feedback
+          const context = new ContextBuilder(this.config.workspace, this.memory, this.skills);
+          const history = session.getHistory(this.config.agents.memory_window);
+          const pastHistory = history.slice(0, -1);
+          const messages = await context.buildMessages(pastHistory, msg.content, msg.media);
+          context.addPlanModificationInstructions(planState.planText, msg.content);
+
+          const result = await this.runAgentLoop(context, messages, onProgress, modelRole);
+          response = result.content;
+
+          // Check if a new plan was sent via the message tool — update plan state
+          this.detectAndStorePlan(session, result.content, planState.tier as 2 | 3 | 4);
+        }
+      } else {
+        // --- Normal flow: planning loop or direct execution ---
+        const context = new ContextBuilder(this.config.workspace, this.memory, this.skills);
+        const history = session.getHistory(this.config.agents.memory_window);
+        const pastHistory = history.slice(0, -1);
+        const messages = await context.buildMessages(pastHistory, msg.content, msg.media);
+
+        // Thread monitoring: tell LLM it can skip responding
+        const slackMeta = msg.metadata?.slack as Record<string, unknown> | undefined;
+        const isMonitoredThread = slackMeta?.threadMonitored === true;
+        if (isMonitoredThread) {
+          context.addUserHint(
+            "[System: This message is from a Slack thread you were previously tagged in, but you were NOT directly mentioned in this message. " +
+            "Respond ONLY if the message is clearly directed at you (a question, request, or continuing the conversation with you). " +
+            "If the message is people talking to each other or doesn't need your input, respond with exactly: [NO_RESPONSE_NEEDED]]"
+          );
+        }
+
+        // Inject planning instructions if enabled
+        if (planningEnabled) {
+          const forceTier4 = isPlanRequest(msg.content);
+          context.addPlanningInstructions(forceTier4);
+        }
+
+        const result = await this.runAgentLoop(context, messages, onProgress, modelRole);
+        response = result.content;
+
+        // Detect if the LLM sent a plan via the message tool
+        if (planningEnabled) {
+          this.detectAndStorePlan(session, result.content);
+        }
+      }
     } catch (err) {
       console.error("Error in agent processing:", err);
       response = "Sorry, I encountered an unexpected error processing your request.";
+    }
+
+    // Check if thread-monitored message should be silently skipped
+    const slackMetaOut = msg.metadata?.slack as Record<string, unknown> | undefined;
+    const isMonitoredThreadOut = slackMetaOut?.threadMonitored === true;
+
+    if (isMonitoredThreadOut && response.trim() === "[NO_RESPONSE_NEEDED]") {
+      // Thread-monitored message not directed at bot — record silently, don't publish
+      session.addMessage("assistant", "(no response — not directed at bot)");
+      this.sessions.save(session);
+      return;
     }
 
     // Record assistant response and publish FIRST (before housekeeping)
@@ -453,6 +526,7 @@ export class AgentLoop {
     >,
     onProgress?: (content: string) => Promise<void>,
     modelRole: ModelRole = "chat",
+    planExecuting: boolean = false,
   ): Promise<AgentLoopResult> {
     const maxIterations = this.config.agents.max_iterations;
     const tokenBudget = this.config.agents.token_budget;
@@ -461,8 +535,14 @@ export class AgentLoop {
     let progressSent = false;
 
     for (let i = 0; i < maxIterations; i++) {
-      // After first tool-call iteration completes, send automatic progress signal
-      if (i === 1 && onProgress && !progressSent) {
+      if (planExecuting && i > 0 && onProgress) {
+        // When executing a plan, inject progress hint on every iteration
+        context.addUserHint(
+          "[System instruction]: You are executing an approved plan. If you just completed a step, use the `message` tool to report progress before continuing to the next step."
+        );
+        messages = context.getMessages();
+      } else if (i === 1 && onProgress && !progressSent) {
+        // Default behavior: after first tool-call iteration, send progress signal
         await onProgress("Working on this — I'll update you as I go.");
         progressSent = true;
 
@@ -478,27 +558,34 @@ export class AgentLoop {
         break;
       }
 
-      const response = await this.provider.chat({
-        messages,
-        tools: this.tools.getDefinitions(),
-        model: resolveModel(this.config, modelRole),
-        maxTokens: this.config.agents.max_tokens,
-        temperature: this.config.agents.temperature,
-      });
+      // Retry transient LLM errors (timeouts, network) before giving up
+      let response;
+      for (let llmAttempt = 0; llmAttempt < 3; llmAttempt++) {
+        response = await this.provider.chat({
+          messages,
+          tools: this.tools.getDefinitions(),
+          model: resolveModel(this.config, modelRole),
+          maxTokens: this.config.agents.max_tokens,
+          temperature: this.config.agents.temperature,
+        });
+        if (response.finishReason !== "error") break;
+        // Only retry transient-looking errors
+        const errText = response.content ?? "";
+        const isTransient = /too long|try again|trouble connecting|temporary/i.test(errText);
+        if (!isTransient || llmAttempt >= 2) {
+          console.error(`LLM error (non-retryable or retries exhausted): ${errText}`);
+          return { content: errText || "Sorry, I encountered an error processing your request.", usage };
+        }
+        const delay = 5000 * Math.pow(2, llmAttempt); // 5s, 10s
+        console.warn(`LLM returned transient error, retrying in ${delay / 1000}s (attempt ${llmAttempt + 1}/3): ${errText}`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
 
       // Accumulate token usage
-      usage.promptTokens += response.usage.promptTokens ?? 0;
-      usage.completionTokens += response.usage.completionTokens ?? 0;
-      usage.totalTokens += response.usage.totalTokens ?? 0;
+      usage.promptTokens += response!.usage.promptTokens ?? 0;
+      usage.completionTokens += response!.usage.completionTokens ?? 0;
+      usage.totalTokens += response!.usage.totalTokens ?? 0;
       usage.iterations = i + 1;
-
-      if (response.finishReason === "error") {
-        return {
-          content: response.content ??
-            "Sorry, I encountered an error processing your request.",
-          usage,
-        };
-      }
 
       if (response.content) {
         lastContent = response.content;
@@ -545,6 +632,71 @@ export class AgentLoop {
       console.log(`Turn usage: ${usage.totalTokens} tokens (${usage.iterations} iterations)`);
     }
     return { content, usage };
+  }
+
+  /**
+   * Detect if the LLM's response indicates it sent a plan to the user via the message tool.
+   * If so, store it in session metadata as a proposed plan.
+   *
+   * Heuristic: if the response text mentions a plan was sent or asks to confirm,
+   * and the message tool was likely called (we can infer from the response pattern),
+   * treat it as a plan proposal. The actual plan text is what the message tool sent,
+   * but since we can't easily intercept that, we look for plan-like patterns in the
+   * final response and the session's last outbound message.
+   */
+  private detectAndStorePlan(
+    session: Session,
+    responseText: string,
+    forceTier?: 2 | 3 | 4,
+  ): void {
+    // Look for signals that a plan was proposed:
+    // - Response mentions waiting for confirmation
+    // - Response mentions "plan" + "review"/"approve"/"confirm"
+    const planProposalSignals = [
+      /reply\s+['"]?go['"]?/i,
+      /tell\s+me\s+what\s+to\s+change/i,
+      /I['']ve\s+sent\s+(you\s+)?a\s+plan/i,
+      /plan\s+to\s+review/i,
+      /waiting\s+for\s+(your\s+)?(confirmation|approval)/i,
+      /ready\s+to\s+start\?/i,
+      /want\s+me\s+to\s+proceed/i,
+    ];
+
+    const looksLikePlanResponse = planProposalSignals.some((p) =>
+      p.test(responseText)
+    );
+
+    if (!looksLikePlanResponse) return;
+
+    // Find the most recent outbound plan text from session messages
+    // The message tool would have sent a message — look for the last assistant/tool content
+    // that looks like a numbered plan
+    let planText = "";
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+      const m = session.messages[i];
+      if (m.role === "assistant" && m.content) {
+        // Check if this message contains a numbered list (plan format)
+        const hasNumberedSteps = /^\s*\d+\.\s+/m.test(m.content);
+        if (hasNumberedSteps) {
+          planText = m.content;
+          break;
+        }
+      }
+    }
+
+    // If we couldn't find a plan in session messages, try to extract from outbound
+    // messages that were sent via the message tool (they won't be in session history
+    // since they go through the bus). In this case, we note that a plan was proposed
+    // but can't capture the exact text.
+    if (!planText) {
+      // Store a minimal plan state so we know to check for confirmation
+      planText = "(Plan sent via message — see chat history)";
+    }
+
+    const tier = forceTier ?? 2;
+    session.metadata.plan = createPlanState(planText, tier as 2 | 3 | 4);
+    this.sessions.save(session);
+    console.log(`Plan proposed (Tier ${tier}), awaiting user confirmation.`);
   }
 
   /**
