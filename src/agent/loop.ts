@@ -50,6 +50,9 @@ import { WorkspaceHealthTool } from "./tools/workspace_health.ts";
 
 interface AgentLoopResult {
   content: string;
+  exhausted: boolean;
+  /** Plan text captured from the message tool during a planning loop. */
+  capturedPlan?: string;
   usage: {
     promptTokens: number;
     completionTokens: number;
@@ -391,6 +394,9 @@ export class AgentLoop {
 
           const result = await this.runAgentLoop(context, messages, onProgress, modelRole, true);
           response = result.content;
+          if (result.exhausted) {
+            await this.writeHeartbeatContinuation(msg, result);
+          }
 
           // Mark plan as completed
           (session.metadata.plan as PlanState).status = "completed";
@@ -407,11 +413,20 @@ export class AgentLoop {
           const messages = await context.buildMessages(pastHistory, msg.content, msg.media);
           context.addPlanModificationInstructions(planState.planText, msg.content);
 
-          const result = await this.runAgentLoop(context, messages, onProgress, modelRole);
+          const result = await this.runAgentLoop(context, messages, onProgress, modelRole, false, true);
           response = result.content;
+          if (result.exhausted) {
+            await this.writeHeartbeatContinuation(msg, result);
+          }
 
-          // Check if a new plan was sent via the message tool — update plan state
-          this.detectAndStorePlan(session, result.content, planState.tier as 2 | 3 | 4);
+          // Use captured plan from message tool if available, fall back to heuristic
+          if (result.capturedPlan) {
+            session.metadata.plan = createPlanState(result.capturedPlan, planState.tier as 2 | 3 | 4);
+            this.sessions.save(session);
+            console.log(`Revised plan proposed (Tier ${planState.tier}), awaiting user confirmation.`);
+          } else {
+            this.detectAndStorePlan(session, result.content, planState.tier as 2 | 3 | 4);
+          }
         }
       } else {
         // --- Normal flow: planning loop or direct execution ---
@@ -442,11 +457,20 @@ export class AgentLoop {
           await this.injectHealthHint(context, planState);
         }
 
-        const result = await this.runAgentLoop(context, messages, onProgress, modelRole);
+        const result = await this.runAgentLoop(context, messages, onProgress, modelRole, false, planningEnabled);
         response = result.content;
+        if (result.exhausted) {
+          await this.writeHeartbeatContinuation(msg, result);
+        }
 
-        // Detect if the LLM sent a plan via the message tool
-        if (planningEnabled) {
+        // If the loop captured a plan from the message tool, store it directly
+        if (planningEnabled && result.capturedPlan) {
+          const tier = isPlanRequest(msg.content) ? 4 : 2;
+          session.metadata.plan = createPlanState(result.capturedPlan, tier as 2 | 3 | 4);
+          this.sessions.save(session);
+          console.log(`Plan proposed (Tier ${tier}), awaiting user confirmation.`);
+        } else if (planningEnabled) {
+          // Fallback: detect plan from response text (e.g. plan was in LLM reply, not message tool)
           this.detectAndStorePlan(session, result.content);
         }
       }
@@ -564,10 +588,12 @@ export class AgentLoop {
     onProgress?: (content: string) => Promise<void>,
     modelRole: ModelRole = "chat",
     planExecuting: boolean = false,
+    planningMode: boolean = false,
   ): Promise<AgentLoopResult> {
     const maxIterations = this.config.agents.max_iterations;
     const tokenBudget = this.config.agents.token_budget;
     let lastContent = "";
+    let capturedPlan: string | undefined;
     const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, iterations: 0 };
     let progressSent = false;
 
@@ -611,7 +637,7 @@ export class AgentLoop {
         const isTransient = /too long|try again|trouble connecting|temporary/i.test(errText);
         if (!isTransient || llmAttempt >= 2) {
           console.error(`LLM error (non-retryable or retries exhausted): ${errText}`);
-          return { content: errText || "Sorry, I encountered an error processing your request.", usage };
+          return { content: errText || "Sorry, I encountered an error processing your request.", exhausted: false, usage };
         }
         const delay = 5000 * Math.pow(2, llmAttempt); // 5s, 10s
         console.warn(`LLM returned transient error, retrying in ${delay / 1000}s (attempt ${llmAttempt + 1}/3): ${errText}`);
@@ -630,7 +656,7 @@ export class AgentLoop {
 
       // No tool calls — we're done
       if (response.toolCalls.length === 0) {
-        return { content: lastContent || "I'm not sure how to respond to that.", usage };
+        return { content: lastContent || "I'm not sure how to respond to that.", exhausted: false, usage };
       }
 
       // Add assistant message with tool calls
@@ -642,6 +668,22 @@ export class AgentLoop {
 
       if (response.reasoning_content) {
         console.log(`Reasoning: ${response.reasoning_content.slice(0, 200)}`);
+      }
+
+      // In planning mode, check if the message tool is being called with a plan
+      // BEFORE executing — capture the plan text from the tool call arguments.
+      let planSentThisIteration = false;
+      if (planningMode) {
+        for (const tc of response.toolCalls) {
+          if (tc.name === "message" && typeof tc.arguments.content === "string") {
+            const msgContent = tc.arguments.content as string;
+            // A plan has numbered steps — capture it
+            if (/^\s*\d+\.\s+/m.test(msgContent)) {
+              capturedPlan = msgContent;
+              planSentThisIteration = true;
+            }
+          }
+        }
       }
 
       // Execute tool calls in parallel
@@ -659,6 +701,14 @@ export class AgentLoop {
         context.addToolResult(response.toolCalls[j].id, toolResults[j].name, toolResults[j].result);
       }
 
+      // Enforce stop: if the LLM sent a plan via the message tool, break the loop
+      // immediately. This prevents the LLM from continuing to execute after presenting
+      // a plan — the user must confirm before any further work happens.
+      if (planSentThisIteration) {
+        console.log("Planning mode: plan sent via message tool, stopping loop to await user confirmation.");
+        return { content: lastContent || "", exhausted: false, capturedPlan, usage };
+      }
+
       // Update messages for next iteration
       messages = context.getMessages();
     }
@@ -668,7 +718,7 @@ export class AgentLoop {
     if (usage.totalTokens > 0) {
       console.log(`Turn usage: ${usage.totalTokens} tokens (${usage.iterations} iterations)`);
     }
-    return { content, usage };
+    return { content, exhausted: true, usage };
   }
 
   /**
@@ -728,6 +778,57 @@ export class AgentLoop {
       await this.healthState.save();
     } catch (err) {
       console.error("Workspace health hint error:", err);
+    }
+  }
+
+  /**
+   * Write an unfinished task to HEARTBEAT.md so the heartbeat can follow up.
+   * Called when runAgentLoop exhausts its iteration or token budget.
+   */
+  private async writeHeartbeatContinuation(
+    msg: InboundMessage,
+    result: AgentLoopResult,
+  ): Promise<void> {
+    try {
+      const heartbeatPath = join(this.config.workspace, "HEARTBEAT.md");
+      let content: string;
+      try {
+        content = await Deno.readTextFile(heartbeatPath);
+      } catch {
+        content = "# Heartbeat Tasks\n\n## Active Tasks\n\n## Completed\n";
+      }
+
+      const timestamp = new Date().toISOString().replace("T", " ").slice(0, 16);
+      const truncatedRequest = msg.content.length > 300
+        ? msg.content.slice(0, 300) + "..."
+        : msg.content;
+      const { iterations } = result.usage;
+      const tokens = result.usage.totalTokens;
+
+      const entry =
+        `\n- [ ] **[Unfinished Task]** _(auto-added ${timestamp})_\n` +
+        `  A task hit its processing limit (${iterations} iterations, ${tokens} tokens) before completing.\n` +
+        `  **Channel:** ${msg.channel} | **Chat ID:** ${msg.chatId}\n` +
+        `  **Original request:** "${truncatedRequest}"\n` +
+        `  **Action:** Continue working on this task. Send results or progress updates to the user using the \`message\` tool with channel "${msg.channel}" and chat_id "${msg.chatId}". Only remove this entry from HEARTBEAT.md when the task is fully complete.\n`;
+
+      // Insert after "## Active Tasks" header
+      const activeIdx = content.indexOf("## Active Tasks");
+      if (activeIdx !== -1) {
+        const lineEnd = content.indexOf("\n", activeIdx);
+        if (lineEnd !== -1) {
+          content = content.slice(0, lineEnd + 1) + entry + content.slice(lineEnd + 1);
+        } else {
+          content += entry;
+        }
+      } else {
+        content += `\n## Active Tasks\n${entry}`;
+      }
+
+      await Deno.writeTextFile(heartbeatPath, content);
+      console.log("Heartbeat: wrote continuation task for exhausted agent loop");
+    } catch (err) {
+      console.error("Failed to write heartbeat continuation:", err);
     }
   }
 
