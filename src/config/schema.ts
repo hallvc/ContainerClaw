@@ -88,6 +88,13 @@ export const StorageConfigSchema = z.object({
   public_url_includes_bucket: z.boolean().default(true),
 });
 
+export const WorkspaceHealthConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  max_questions_per_day: z.number().min(1).max(5).default(2),
+  proactive_nudge: z.boolean().default(true),
+  skip_cooldown_hours: z.number().min(1).max(168).default(24),
+});
+
 export const ConfigSchema = z.object({
   slack: SlackConfigSchema.default({}),
   email: EmailConfigSchema.default({}),
@@ -98,6 +105,7 @@ export const ConfigSchema = z.object({
   heartbeat: HeartbeatConfigSchema.default({}),
   cron: CronConfigSchema.default({}),
   storage: StorageConfigSchema.default({}),
+  workspace_health: WorkspaceHealthConfigSchema.default({}),
   workspace: z.string().default("/workspace"),
   data_dir: z.string().default("/data"),
 });
@@ -112,6 +120,7 @@ export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
 export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;
 export type CronConfig = z.infer<typeof CronConfigSchema>;
 export type StorageConfig = z.infer<typeof StorageConfigSchema>;
+export type WorkspaceHealthConfig = z.infer<typeof WorkspaceHealthConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 
 /** Workspace confinement is always enforced — not configurable. */

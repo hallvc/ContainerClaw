@@ -43,6 +43,10 @@ import {
   isPlanRequest,
   createPlanState,
 } from "./planning.ts";
+import { analyzeHealth } from "../workspace/health.ts";
+import { HealthStateManager } from "../workspace/health_state.ts";
+import { getSystemHint } from "../workspace/questions.ts";
+import { WorkspaceHealthTool } from "./tools/workspace_health.ts";
 
 interface AgentLoopResult {
   content: string;
@@ -69,6 +73,8 @@ export class AgentLoop {
   private _mcpCleanup: Array<() => Promise<void>> = [];
   private _mcpAuthErrors: MCPAuthPending[] = [];
   private storage?: Storage;
+  private healthState: HealthStateManager;
+  private defaultsDir: string;
 
   constructor(
     bus: MessageBus,
@@ -90,6 +96,14 @@ export class AgentLoop {
       maxTokens: config.agents.max_tokens,
       execTimeoutMs: config.tools.exec_timeout_ms,
     });
+
+    const whConfig = config.workspace_health ?? { enabled: true, max_questions_per_day: 2, proactive_nudge: true, skip_cooldown_hours: 24 };
+    this.healthState = new HealthStateManager(
+      config.data_dir,
+      whConfig.max_questions_per_day,
+      whConfig.skip_cooldown_hours,
+    );
+    this.defaultsDir = join(import.meta.dirname!, "..", "..", "defaults", "workspace");
 
     this.registerTools();
   }
@@ -115,6 +129,14 @@ export class AgentLoop {
 
     this.tools.register(new WebFetchTool());
     this.tools.register(new LearnTool(this.memory));
+
+    if (this.config.workspace_health?.enabled !== false) {
+      this.tools.register(new WorkspaceHealthTool(
+        this.config.workspace,
+        this.defaultsDir,
+        this.healthState,
+      ));
+    }
   }
 
   private async connectMcp(): Promise<void> {
@@ -229,6 +251,11 @@ export class AgentLoop {
 
     await this.connectMcp();
 
+    // Load workspace health state
+    await this.healthState.load().catch((e) =>
+      console.error("Workspace health state load error:", e)
+    );
+
     // Ensure memory directory structure exists
     await this.memory.ensureDirectories().catch((e) =>
       console.error("Memory directory setup error:", e)
@@ -324,6 +351,11 @@ export class AgentLoop {
     // Record user message in session
     session.addMessage("user", msg.content);
 
+    // Track channel activity for workspace health proactive nudges
+    if (this.config.workspace_health?.enabled !== false) {
+      this.healthState.recordChannelActivity(msg.channel, msg.chatId);
+    }
+
     const planState = session.metadata.plan as PlanState | undefined;
     const planningEnabled = this.config.agents.planning?.enabled !== false;
 
@@ -403,6 +435,11 @@ export class AgentLoop {
         if (planningEnabled) {
           const forceTier4 = isPlanRequest(msg.content);
           context.addPlanningInstructions(forceTier4);
+        }
+
+        // Workspace health: inject piggyback hint or pending-answer hint
+        if (this.config.workspace_health?.enabled !== false) {
+          await this.injectHealthHint(context, planState);
         }
 
         const result = await this.runAgentLoop(context, messages, onProgress, modelRole);
@@ -632,6 +669,76 @@ export class AgentLoop {
       console.log(`Turn usage: ${usage.totalTokens} tokens (${usage.iterations} iterations)`);
     }
     return { content, usage };
+  }
+
+  /**
+   * Inject workspace health hints into the LLM context.
+   * - If a pending question exists, inject answer-detection hint.
+   * - Otherwise, if gaps exist and we can ask today, inject a piggyback question hint.
+   * - Never injects when a plan is pending (planning collision guard).
+   */
+  private async injectHealthHint(
+    context: ContextBuilder,
+    planState?: PlanState,
+  ): Promise<void> {
+    try {
+      // Planning collision guard: never inject when a plan is proposed
+      if (planState?.status === "proposed") {
+        this.healthState.clearPendingQuestion();
+        return;
+      }
+
+      const pending = this.healthState.pendingQuestion;
+      if (pending) {
+        // Answer-detection hint for a previously asked question
+        const entry = await import("../workspace/questions.ts");
+        const fieldLabel = pending.replace(/\.\w/, (m) => " " + m[1].toUpperCase()).replace(/^\w+\./, "");
+        context.addHealthHint(
+          `You recently asked the user about their ${fieldLabel}. ` +
+          `If their response answers that question, call the \`workspace_health\` tool with action "record_answer", field_key "${pending}", and the extracted value. ` +
+          `If they say "skip", "not now", or "later", call the tool with action "record_skip" and field_key "${pending}". ` +
+          `If they're asking something completely unrelated, respond normally and ignore the health question — it will be asked again later.`
+        );
+        void entry; // suppress unused import warning
+        return;
+      }
+
+      // Check if we can ask a new question
+      if (!this.healthState.canAskToday() || this.healthState.piggybackedToday) return;
+
+      const health = await analyzeHealth(this.config.workspace, this.defaultsDir);
+      if (health.isComplete) return;
+
+      const allGaps = health.files.flatMap((f) => f.gaps);
+      const nextGap = this.healthState.getNextQuestion(allGaps);
+      if (!nextGap) return;
+
+      // Inject piggyback hint
+      const hint = getSystemHint(nextGap.fieldKey);
+      context.addHealthHint(
+        `## Workspace Profile\n\n` +
+        `You haven't learned some basic information about the user yet. ${hint} ` +
+        `When they answer, call the \`workspace_health\` tool with action "record_answer", field_key "${nextGap.fieldKey}", and the extracted value. ` +
+        `If they say "skip" or "not now", call it with action "record_skip". ` +
+        `Keep it casual and natural — this should feel like a brief aside, not a form.`
+      );
+
+      this.healthState.recordQuestion(nextGap.fieldKey);
+      this.healthState.recordPiggyback();
+      await this.healthState.save();
+    } catch (err) {
+      console.error("Workspace health hint error:", err);
+    }
+  }
+
+  /** Expose health state for gateway proactive nudge integration. */
+  getHealthState(): HealthStateManager {
+    return this.healthState;
+  }
+
+  /** Expose defaults directory for gateway proactive nudge. */
+  getDefaultsDir(): string {
+    return this.defaultsDir;
   }
 
   /**

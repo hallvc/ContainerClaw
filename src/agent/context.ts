@@ -161,6 +161,15 @@ export class ContextBuilder {
     this.messages.push({ role: "user", content });
   }
 
+  /**
+   * Inject a workspace health hint into the system prompt.
+   * Uses splice(1, 0, ...) to insert a system message after the main system prompt
+   * but before conversation history — same pattern as addPlanningInstructions().
+   */
+  addHealthHint(content: string): void {
+    this.messages.splice(1, 0, { role: "system", content });
+  }
+
   getMessages(): ChatMessage[] {
     return this.messages;
   }

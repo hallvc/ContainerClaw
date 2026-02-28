@@ -12,6 +12,8 @@ import { transcribe } from "../../providers/transcription.ts";
 import { CronService } from "../../cron/service.ts";
 import { HeartbeatService } from "../../heartbeat/service.ts";
 import type { Config } from "../../config/schema.ts";
+import { analyzeHealth } from "../../workspace/health.ts";
+import { getDirectQuestion } from "../../workspace/questions.ts";
 
 export interface ChannelDetection {
   hasSlack: boolean;
@@ -174,6 +176,36 @@ export async function runGateway(): Promise<void> {
       }
     } catch (err) {
       console.error("Weekly synthesis check error:", err);
+    }
+
+    // Workspace health: proactive daily nudge if no piggyback happened today
+    if (config.workspace_health?.enabled !== false && config.workspace_health?.proactive_nudge !== false) {
+      try {
+        const healthState = agent.getHealthState();
+        const defaultsDir = agent.getDefaultsDir();
+        const health = await analyzeHealth(config.workspace, defaultsDir);
+        const allGaps = health.files.flatMap((f) => f.gaps);
+
+        if (healthState.needsProactiveNudge(!health.isComplete)) {
+          const nextGap = healthState.getNextQuestion(allGaps);
+          if (nextGap && healthState.lastActiveChannel && healthState.lastActiveChatId) {
+            const question = getDirectQuestion(nextGap.fieldKey);
+            await bus.publishOutbound({
+              channel: healthState.lastActiveChannel,
+              chatId: healthState.lastActiveChatId,
+              content: question,
+              media: [],
+              metadata: {},
+            });
+            healthState.recordQuestion(nextGap.fieldKey);
+            healthState.recordProactiveNudge();
+            await healthState.save();
+            console.log(`Workspace health: proactive nudge sent for ${nextGap.fieldKey}`);
+          }
+        }
+      } catch (err) {
+        console.error("Workspace health proactive nudge error:", err);
+      }
     }
 
     const response = await agent.processDirect("heartbeat", "system", prompt);
