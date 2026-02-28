@@ -10,7 +10,7 @@ import { TelegramChannel } from "../../channels/telegram.ts";
 import { ChannelManager } from "../../channels/manager.ts";
 import { transcribe } from "../../providers/transcription.ts";
 import { CronService } from "../../cron/service.ts";
-import { HeartbeatService } from "../../heartbeat/service.ts";
+import { HeartbeatService, TRIAGE_PROMPT, EXECUTE_PROMPT } from "../../heartbeat/service.ts";
 import type { Config } from "../../config/schema.ts";
 import { analyzeHealth } from "../../workspace/health.ts";
 import { getDirectQuestion } from "../../workspace/questions.ts";
@@ -149,67 +149,99 @@ export async function runGateway(): Promise<void> {
     config.heartbeat.interval_seconds,
     config.heartbeat.enabled,
   );
-  heartbeat.setCallback(async (prompt) => {
-    console.log("Heartbeat executing...");
+  heartbeat.setCallbacks({
+    triage: async (content) => {
+      const prompt = TRIAGE_PROMPT(content);
+      const response = await provider.chat({
+        messages: [{ role: "user", content: prompt }],
+        model: resolveModel(config, "heartbeat"),
+        maxTokens: 256,
+        temperature: 0,
+      });
+      return response.content ?? "HEARTBEAT_OK";
+    },
 
-    // Weekly synthesis: run once per week (check every heartbeat)
-    try {
-      const lastSynthesisPath = `${config.data_dir}/.last-weekly-synthesis`;
-      let shouldSynthesize = false;
-      let sinceDate: Date | undefined;
+    execute: async (assessment) => {
+      const prompt = EXECUTE_PROMPT(assessment);
+      const response = await agent.processDirect("heartbeat", "system", prompt);
+      return response;
+    },
+
+    onTick: async () => {
+      // Weekly synthesis: run once per week (check every heartbeat)
       try {
-        const lastRun = await Deno.readTextFile(lastSynthesisPath);
-        const lastRunDate = new Date(lastRun.trim());
-        const daysSince = (Date.now() - lastRunDate.getTime()) /
-          (1000 * 60 * 60 * 24);
-        shouldSynthesize = daysSince >= 7;
-        if (shouldSynthesize) {
-          sinceDate = lastRunDate;
-        }
-      } catch {
-        shouldSynthesize = true; // No record = never run; sinceDate stays undefined (read all)
-      }
-      if (shouldSynthesize) {
-        console.log("Running weekly memory synthesis...");
-        await agent.synthesizeWeekly(sinceDate);
-        await Deno.writeTextFile(lastSynthesisPath, new Date().toISOString());
-      }
-    } catch (err) {
-      console.error("Weekly synthesis check error:", err);
-    }
-
-    // Workspace health: proactive daily nudge if no piggyback happened today
-    if (config.workspace_health?.enabled !== false && config.workspace_health?.proactive_nudge !== false) {
-      try {
-        const healthState = agent.getHealthState();
-        const defaultsDir = agent.getDefaultsDir();
-        const health = await analyzeHealth(config.workspace, defaultsDir);
-        const allGaps = health.files.flatMap((f) => f.gaps);
-
-        if (healthState.needsProactiveNudge(!health.isComplete)) {
-          const nextGap = healthState.getNextQuestion(allGaps);
-          if (nextGap && healthState.lastActiveChannel && healthState.lastActiveChatId) {
-            const question = getDirectQuestion(nextGap.fieldKey);
-            await bus.publishOutbound({
-              channel: healthState.lastActiveChannel,
-              chatId: healthState.lastActiveChatId,
-              content: question,
-              media: [],
-              metadata: {},
-            });
-            healthState.recordQuestion(nextGap.fieldKey);
-            healthState.recordProactiveNudge();
-            await healthState.save();
-            console.log(`Workspace health: proactive nudge sent for ${nextGap.fieldKey}`);
+        const lastSynthesisPath = `${config.data_dir}/.last-weekly-synthesis`;
+        let shouldSynthesize = false;
+        let sinceDate: Date | undefined;
+        try {
+          const lastRun = await Deno.readTextFile(lastSynthesisPath);
+          const lastRunDate = new Date(lastRun.trim());
+          const daysSince = (Date.now() - lastRunDate.getTime()) /
+            (1000 * 60 * 60 * 24);
+          shouldSynthesize = daysSince >= 7;
+          if (shouldSynthesize) {
+            sinceDate = lastRunDate;
           }
+        } catch {
+          shouldSynthesize = true; // No record = never run; sinceDate stays undefined (read all)
+        }
+        if (shouldSynthesize) {
+          console.log("Running weekly memory synthesis...");
+          await agent.synthesizeWeekly(sinceDate);
+          await Deno.writeTextFile(lastSynthesisPath, new Date().toISOString());
         }
       } catch (err) {
-        console.error("Workspace health proactive nudge error:", err);
+        console.error("Weekly synthesis check error:", err);
       }
-    }
 
-    const response = await agent.processDirect("heartbeat", "system", prompt);
-    return response;
+      // Workspace health: proactive daily nudge if no piggyback happened today
+      if (config.workspace_health?.enabled !== false && config.workspace_health?.proactive_nudge !== false) {
+        try {
+          const healthState = agent.getHealthState();
+          const defaultsDir = agent.getDefaultsDir();
+          const health = await analyzeHealth(config.workspace, defaultsDir);
+          const allGaps = health.files.flatMap((f) => f.gaps);
+
+          if (healthState.needsProactiveNudge(!health.isComplete)) {
+            const nextGap = healthState.getNextQuestion(allGaps);
+            if (nextGap && healthState.lastActiveChannel && healthState.lastActiveChatId) {
+              const question = getDirectQuestion(nextGap.fieldKey);
+              await bus.publishOutbound({
+                channel: healthState.lastActiveChannel,
+                chatId: healthState.lastActiveChatId,
+                content: question,
+                media: [],
+                metadata: {},
+              });
+              healthState.recordQuestion(nextGap.fieldKey);
+              healthState.recordProactiveNudge();
+              await healthState.save();
+              console.log(`Workspace health: proactive nudge sent for ${nextGap.fieldKey}`);
+            }
+          }
+        } catch (err) {
+          console.error("Workspace health proactive nudge error:", err);
+        }
+      }
+    },
+
+    onExecuteResult: async (result) => {
+      if (result.response) {
+        const healthState = agent.getHealthState();
+        if (healthState.lastActiveChannel && healthState.lastActiveChatId) {
+          await bus.publishOutbound({
+            channel: healthState.lastActiveChannel,
+            chatId: healthState.lastActiveChatId,
+            content: result.response,
+            media: [],
+            metadata: {},
+          });
+          console.log("Heartbeat: result sent to user");
+        } else {
+          console.log("Heartbeat: task completed but no active channel to deliver result");
+        }
+      }
+    },
   });
 
   // Graceful shutdown
@@ -245,6 +277,7 @@ export async function runGateway(): Promise<void> {
 
   console.log(`Model (chat): ${resolveModel(config, "chat")}`);
   console.log(`Model (memory): ${resolveModel(config, "memory")}`);
+  console.log(`Model (heartbeat): ${resolveModel(config, "heartbeat")}`);
   console.log(`Workspace: ${config.workspace}`);
   console.log(`Data dir: ${config.data_dir}`);
 

@@ -74,6 +74,7 @@ export function buildRawConfig(
           vision: env.CONTAINERCLAW_MODEL_VISION,
           image: env.CONTAINERCLAW_MODEL_IMAGE,
           tts: env.CONTAINERCLAW_MODEL_TTS,
+          heartbeat: env.CONTAINERCLAW_MODEL_HEARTBEAT,
         }),
       },
       ...defined({
@@ -176,6 +177,7 @@ export async function loadConfig(configPath?: string): Promise<Config> {
     CONTAINERCLAW_MODEL_VISION: Deno.env.get("CONTAINERCLAW_MODEL_VISION"),
     CONTAINERCLAW_MODEL_IMAGE: Deno.env.get("CONTAINERCLAW_MODEL_IMAGE"),
     CONTAINERCLAW_MODEL_TTS: Deno.env.get("CONTAINERCLAW_MODEL_TTS"),
+    CONTAINERCLAW_MODEL_HEARTBEAT: Deno.env.get("CONTAINERCLAW_MODEL_HEARTBEAT"),
     CONTAINERCLAW_WORKSPACE: Deno.env.get("CONTAINERCLAW_WORKSPACE"),
     CONTAINERCLAW_DATA_DIR: Deno.env.get("CONTAINERCLAW_DATA_DIR"),
     CONTAINERCLAW_TEMPERATURE: Deno.env.get("CONTAINERCLAW_TEMPERATURE"),
