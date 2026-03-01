@@ -1,7 +1,7 @@
 import { join } from "@std/path";
 import type { MessageBus } from "../bus/queue.ts";
 import type { InboundMessage } from "../bus/events.ts";
-import { getSessionKey } from "../bus/events.ts";
+import { getSessionKey, getCoalesceKey, coalesceMessages } from "../bus/events.ts";
 import type { LLMProvider } from "../providers/base.ts";
 import { isContextAware, ToolRegistry } from "./tools/base.ts";
 import {
@@ -290,7 +290,26 @@ export class AgentLoop {
         const msg = await this.bus.consumeInboundWithTimeout(1000);
         if (!msg) continue;
 
-        await this.processMessage(msg);
+        // Coalesce queued messages from the same user+channel
+        let finalMsg = msg;
+        if (this.config.agents.coalesce_messages !== false) {
+          const key = getCoalesceKey(msg);
+          const extras = this.bus.drainMatchingInbound(
+            (queued) => getCoalesceKey(queued) === key,
+          );
+          if (extras.length > 0) {
+            finalMsg = coalesceMessages([msg, ...extras]);
+            console.log(
+              `Message: coalesced ${1 + extras.length} messages from ${msg.senderId}`,
+            );
+          }
+        }
+
+        console.log(
+          `Message: dequeued [${finalMsg.channel}:${finalMsg.chatId}] from=${finalMsg.senderId} "${finalMsg.content.slice(0, 60)}${finalMsg.content.length > 60 ? "..." : ""}"`,
+        );
+
+        await this.processMessage(finalMsg);
       } catch (err) {
         console.error("Agent loop error:", err);
       }
@@ -305,6 +324,10 @@ export class AgentLoop {
     if (msg.channel === "system") {
       return this.processSystemMessage(msg);
     }
+
+    const sessionKey = getSessionKey(msg);
+    const processStart = Date.now();
+    console.log(`Message: processing [${sessionKey}]...`);
 
     // Surface pending MCP auth errors to the user (once)
     if (this._mcpAuthErrors.length > 0) {
@@ -327,7 +350,6 @@ export class AgentLoop {
     }
 
     this.setToolContext(msg.channel, msg.chatId, msg.metadata);
-    const sessionKey = getSessionKey(msg);
     const session = this.sessions.getOrCreate(sessionKey);
 
     // Handle slash commands
@@ -487,7 +509,7 @@ export class AgentLoop {
         }
       }
     } catch (err) {
-      console.error("Error in agent processing:", err);
+      console.error(`Message: error [${sessionKey}] after ${Date.now() - processStart}ms:`, err);
       response = "Sorry, I encountered an unexpected error processing your request.";
     }
 
@@ -496,7 +518,7 @@ export class AgentLoop {
     const isMonitoredThreadOut = slackMetaOut?.threadMonitored === true;
 
     if (isMonitoredThreadOut && response.trim() === "[NO_RESPONSE_NEEDED]") {
-      // Thread-monitored message not directed at bot — record silently, don't publish
+      console.log(`Message: skipped [${sessionKey}] (thread-monitored, no response needed)`);
       session.addMessage("assistant", "(no response — not directed at bot)");
       this.sessions.save(session);
       return;
@@ -505,6 +527,8 @@ export class AgentLoop {
     // Record assistant response and publish FIRST (before housekeeping)
     session.addMessage("assistant", response);
     this.sessions.save(session);
+
+    console.log(`Message: processed [${sessionKey}] in ${Date.now() - processStart}ms (${response.length} chars)`);
 
     await this.bus.publishOutbound({
       channel: msg.channel,
@@ -607,6 +631,7 @@ export class AgentLoop {
     let lastContent = "";
     let capturedPlan: string | undefined;
     const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, iterations: 0 };
+    console.log(`Agent: LLM loop starting (role=${modelRole}, maxIter=${maxIterations})`);
     let progressSent = false;
 
     for (let i = 0; i < maxIterations; i++) {
@@ -668,6 +693,7 @@ export class AgentLoop {
 
       // No tool calls — we're done
       if (response.toolCalls.length === 0) {
+        console.log(`Agent: LLM loop done (iterations=${usage.iterations}, tokens=${usage.totalTokens})`);
         return { content: lastContent || "I'm not sure how to respond to that.", exhausted: false, usage };
       }
 

@@ -154,3 +154,37 @@ Deno.test("MessageBus - deadLetterQueue getter returns a copy", async () => {
   copy.length = 0; // mutate the copy
   assertEquals(bus.deadLetterSize, 1); // original unchanged
 });
+
+// ---------------------------------------------------------------------------
+// drainMatchingInbound
+// ---------------------------------------------------------------------------
+
+Deno.test("MessageBus - drainMatchingInbound removes matching messages", async () => {
+  const bus = new MessageBus();
+  const a = createInboundMessage({ channel: "slack", senderId: "U1", chatId: "C1", content: "a" });
+  const b = createInboundMessage({ channel: "slack", senderId: "U2", chatId: "C1", content: "b" });
+  const c = createInboundMessage({ channel: "slack", senderId: "U1", chatId: "C1", content: "c" });
+  await bus.publishInbound(a);
+  await bus.publishInbound(b);
+  await bus.publishInbound(c);
+
+  const matched = bus.drainMatchingInbound((m) => m.senderId === "U1");
+  assertEquals(matched.length, 2);
+  assertEquals(matched[0].content, "a");
+  assertEquals(matched[1].content, "c");
+  assertEquals(bus.inboundSize, 1); // only b remains
+});
+
+Deno.test("MessageBus - drainMatchingInbound returns empty when no match", async () => {
+  const bus = new MessageBus();
+  await bus.publishInbound(makeInbound("hello"));
+  const matched = bus.drainMatchingInbound(() => false);
+  assertEquals(matched.length, 0);
+  assertEquals(bus.inboundSize, 1); // original still there
+});
+
+Deno.test("MessageBus - drainMatchingInbound on empty queue", () => {
+  const bus = new MessageBus();
+  const matched = bus.drainMatchingInbound(() => true);
+  assertEquals(matched.length, 0);
+});

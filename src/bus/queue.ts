@@ -28,6 +28,7 @@ export class MessageBus {
   private _running = false;
 
   async publishInbound(msg: InboundMessage): Promise<void> {
+    console.log(`Queue: inbound published [${msg.channel}:${msg.chatId}] (queue=${this.inboundQueue.length})`);
     const resolver = this.inboundResolvers.shift();
     if (resolver) {
       resolver(msg);
@@ -70,6 +71,7 @@ export class MessageBus {
   }
 
   async publishOutbound(msg: OutboundMessage): Promise<void> {
+    console.log(`Queue: outbound published [${msg.channel}:${msg.chatId}] (${msg.content.length} chars)`);
     const resolver = this.outboundResolvers.shift();
     if (resolver) {
       resolver(msg);
@@ -114,6 +116,7 @@ export class MessageBus {
               error: e instanceof Error ? e.message : String(e),
               timestamp: new Date(),
             });
+            console.warn(`Queue: dead letter [${msg.channel}:${msg.chatId}], total=${this.deadLetters.length}`);
             if (this.deadLetters.length > 100) {
               this.deadLetters.shift();
             }
@@ -165,5 +168,21 @@ export class MessageBus {
 
   get deadLetterQueue(): DeadLetterEntry[] {
     return [...this.deadLetters];
+  }
+
+  /**
+   * Remove and return all queued inbound messages matching a predicate.
+   * Only inspects already-queued messages; does not block.
+   */
+  drainMatchingInbound(
+    predicate: (msg: InboundMessage) => boolean,
+  ): InboundMessage[] {
+    const matched: InboundMessage[] = [];
+    const remaining: InboundMessage[] = [];
+    for (const msg of this.inboundQueue) {
+      (predicate(msg) ? matched : remaining).push(msg);
+    }
+    this.inboundQueue = remaining;
+    return matched;
   }
 }

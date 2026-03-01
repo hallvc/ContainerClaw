@@ -49,6 +49,7 @@ export const AgentsConfigSchema = z.object({
   max_iterations: z.number().int().positive().default(20),
   token_budget: z.number().int().positive().optional(),
   progress_updates: z.boolean().default(true),
+  coalesce_messages: z.boolean().optional(),
   planning: PlanningConfigSchema.default({}),
 });
 

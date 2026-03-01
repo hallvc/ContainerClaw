@@ -120,6 +120,7 @@ export class SlackChannel extends BaseChannel {
           text: this.toMrkdwn(msg.content),
           thread_ts: useThread ? threadTs : undefined,
         });
+        console.log(`Slack: sent to ${msg.chatId}${useThread ? ` thread=${threadTs}` : ""} (${msg.content.length} chars)`);
       }
 
       // Send media attachments
@@ -133,15 +134,17 @@ export class SlackChannel extends BaseChannel {
 
       // Remove :eyes: reaction now that we've responded (best-effort)
       const messageTs = slackMeta.message_ts as string | undefined;
-      if (messageTs) {
+      const coalescedTs = slackMeta.coalesced_message_ts as string[] | undefined;
+      const allTs = coalescedTs ?? (messageTs ? [messageTs] : []);
+      for (const ts of allTs) {
         try {
           await this.webClient.reactions.remove({
             channel: msg.chatId,
             name: "eyes",
-            timestamp: messageTs,
+            timestamp: ts,
           });
         } catch (e) {
-          console.debug(`Slack reactions.remove failed: ${e}`);
+          console.debug(`Slack reactions.remove failed ts=${ts}: ${e}`);
         }
       }
     } catch (e) {

@@ -1,4 +1,6 @@
 import { join } from "@std/path";
+import { SqliteSearchBackend } from "./sqlite_backend.ts";
+import type { SearchBackend } from "./search_backend.ts";
 
 // Module-level singleton to avoid repeated allocation
 const ENCODER = new TextEncoder();
@@ -272,9 +274,27 @@ export class MemoryStore {
   private dataDir: string;
   private indexCache: MemoryIndex | null = null;
   private _dataDirReady = false;
+  private searchBackend: SearchBackend | null = null;
 
   constructor(dataDir: string) {
     this.dataDir = dataDir;
+  }
+
+  /** Try to initialize the SQLite search backend. Called externally (e.g., from AgentLoop). */
+  async initSearchBackend(): Promise<void> {
+    try {
+      const dbPath = join(this.dataDir, ".memory.db");
+      this.searchBackend = new SqliteSearchBackend(dbPath, this.dataDir);
+    } catch {
+      // SQLite not available — fall back to JSON index
+      this.searchBackend = null;
+    }
+  }
+
+  /** Close the SQLite search backend and release resources. */
+  closeSearchBackend(): void {
+    this.searchBackend?.close();
+    this.searchBackend = null;
   }
 
   private async ensureDataDir(): Promise<void> {
@@ -635,6 +655,26 @@ export class MemoryStore {
 
   /** Check if the index needs rebuilding */
   async isIndexStale(): Promise<boolean> {
+    // If SQLite backend is available, delegate staleness check
+    if (this.searchBackend) {
+      try {
+        const dirs = [this.dailyDir(), this.learningsDir(), this.dataDir, join(this.dataDir, "entities")];
+        const files: string[] = [];
+        for (const dir of dirs) {
+          try {
+            for await (const entry of Deno.readDir(dir)) {
+              if (entry.isFile && entry.name.endsWith(".md")) {
+                files.push(join(dir, entry.name));
+              }
+            }
+          } catch { /* dir doesn't exist */ }
+        }
+        return await this.searchBackend.isStale(files);
+      } catch {
+        // Fall through to existing JSON check
+      }
+    }
+
     try {
       const indexStat = await Deno.stat(this.indexPath());
       const indexMtime = indexStat.mtime?.getTime() ?? 0;
@@ -788,6 +828,16 @@ export class MemoryStore {
     await Deno.mkdir(this.dataDir, { recursive: true });
     await atomicWrite(this.indexPath(), JSON.stringify(index, null, 2));
     this.indexCache = index;
+
+    // Also index via SQLite backend if available
+    if (this.searchBackend) {
+      try {
+        await this.searchBackend.index(index.facts, index.entities, index.learnings);
+      } catch {
+        // SQLite indexing failed — JSON index is still valid
+      }
+    }
+
     return index;
   }
 
@@ -814,6 +864,22 @@ export class MemoryStore {
 
   /** Search memory for entries matching a query */
   async recall(query: string, maxResults = 5): Promise<RecallResult[]> {
+    // Use SQLite backend if available (faster BM25 search)
+    if (this.searchBackend) {
+      try {
+        const results = await this.searchBackend.searchWithRecency(query, { limit: maxResults });
+        return results.map(r => ({
+          content: r.content,
+          source: r.source,
+          date: r.date,
+          score: r.score,
+          type: r.type === "learning" ? "learning" as const : "daily" as const,
+        }));
+      } catch {
+        // Fall through to JSON-based search
+      }
+    }
+
     const index = await this.loadIndex();
     const results: RecallResult[] = [];
 
@@ -871,30 +937,61 @@ export class MemoryStore {
 
     // Load learnings scored by relevance — 30% budget
     const learningsBudget = Math.floor(maxChars * 0.3);
-    const learnings = await this.readLearnings();
-    if (learnings.length > 0) {
-      // Score learnings by relevance to current query
-      const scored = learnings.map((l) => ({
-        learning: l,
-        score: scoreMatch(
-          userMessage,
-          `${l.topic} ${l.content}`,
-          extractTags(l.content),
-        ),
-      })).sort((a, b) => b.score - a.score);
-
-      const learningParts: string[] = [];
-      let learningsUsed = 0;
-      for (const { learning } of scored) {
-        const entry = `### ${learning.topic}\n${learning.content}`;
-        if (learningsUsed + entry.length > learningsBudget) break;
-        learningParts.push(entry);
-        learningsUsed += entry.length;
+    let learningsHandled = false;
+    if (this.searchBackend) {
+      try {
+        const learningResults = await this.searchBackend.searchWithRecency(userMessage, {
+          limit: 10,
+          type: "learning",
+        });
+        if (learningResults.length > 0) {
+          const learningParts: string[] = [];
+          let learningsUsed = 0;
+          for (const r of learningResults) {
+            const entry = `### ${r.source}\n${r.content}`;
+            if (learningsUsed + entry.length > learningsBudget) break;
+            learningParts.push(entry);
+            learningsUsed += entry.length;
+          }
+          if (learningParts.length > 0) {
+            const section = `## Learnings\n\n${learningParts.join("\n\n")}`;
+            parts.push(section);
+            budget -= section.length;
+            learningsHandled = true;
+          }
+        }
+      } catch {
+        // Fall through to existing readLearnings logic below
       }
-      if (learningParts.length > 0) {
-        const section = `## Learnings\n\n${learningParts.join("\n\n")}`;
-        parts.push(section);
-        budget -= section.length;
+    }
+
+    // Existing logic (fallback if SQLite didn't handle learnings above)
+    if (!learningsHandled) {
+      const learnings = await this.readLearnings();
+      if (learnings.length > 0) {
+        // Score learnings by relevance to current query
+        const scored = learnings.map((l) => ({
+          learning: l,
+          score: scoreMatch(
+            userMessage,
+            `${l.topic} ${l.content}`,
+            extractTags(l.content),
+          ),
+        })).sort((a, b) => b.score - a.score);
+
+        const learningParts: string[] = [];
+        let learningsUsed = 0;
+        for (const { learning } of scored) {
+          const entry = `### ${learning.topic}\n${learning.content}`;
+          if (learningsUsed + entry.length > learningsBudget) break;
+          learningParts.push(entry);
+          learningsUsed += entry.length;
+        }
+        if (learningParts.length > 0) {
+          const section = `## Learnings\n\n${learningParts.join("\n\n")}`;
+          parts.push(section);
+          budget -= section.length;
+        }
       }
     }
 
