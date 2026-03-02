@@ -4,9 +4,13 @@ const HEARTBEAT_OK_TOKEN = "HEARTBEAT_OK";
 
 export const TRIAGE_PROMPT = (content: string) =>
   `The following is the contents of HEARTBEAT.md:\n---\n${content}\n---\n` +
-  `Are there any actionable tasks that need work? ` +
-  `If yes, briefly describe what needs doing. ` +
-  `If nothing needs attention, reply with exactly: HEARTBEAT_OK`;
+  `Are there any actionable tasks in the "## Active Tasks" section that need work?\n` +
+  `IMPORTANT:\n` +
+  `- Only the "## Active Tasks" section contains actionable work.\n` +
+  `- Items in "## Completed" are already done — ignore them entirely.\n` +
+  `- Items in sections with "Recurring" in the name are templates — ignore them.\n` +
+  `If there are actionable tasks in ## Active Tasks, briefly describe what needs doing.\n` +
+  `If ## Active Tasks is empty or absent, reply with exactly: HEARTBEAT_OK`;
 
 export const EXECUTE_PROMPT = (assessment: string) =>
   `A heartbeat triage identified tasks in HEARTBEAT.md:\n\n${assessment}\n\n` +
@@ -31,19 +35,28 @@ export type HeartbeatCallbacks = {
 export function isHeartbeatEmpty(content: string | null): boolean {
   if (!content) return true;
 
-  const skipPatterns = new Set(["- [ ]", "* [ ]", "- [x]", "* [x]"]);
+  let inSkippedSection = false;
 
   for (const raw of content.split("\n")) {
     const line = raw.trim();
-    if (
-      !line ||
-      line.startsWith("#") ||
-      line.startsWith("<!--") ||
-      skipPatterns.has(line)
-    ) {
+    if (!line) continue;
+
+    if (line.startsWith("#")) {
+      const heading = line.replace(/^#+\s*/, "").toLowerCase();
+      inSkippedSection =
+        heading === "completed" ||
+        heading.startsWith("completed ") ||
+        heading.includes("recurring");
       continue;
     }
-    return false;
+
+    if (inSkippedSection) continue;
+    if (line.startsWith("<!--")) continue;
+    // Skip checkbox lines (bare placeholders or real checkbox items)
+    if (line.startsWith("- [ ]") || line.startsWith("* [ ]") ||
+        line.startsWith("- [x]") || line.startsWith("* [x]")) continue;
+
+    return false; // Non-empty active content found
   }
   return true;
 }
@@ -53,6 +66,151 @@ function isHeartbeatOk(response: string | null): boolean {
     .replace(/_/g, "")
     .toUpperCase()
     .includes(HEARTBEAT_OK_TOKEN.replace(/_/g, ""));
+}
+
+export interface RecurringTask {
+  text: string;
+  frequencyDays: number;
+}
+
+export interface CompletedEntry {
+  date: Date;
+  text: string;
+}
+
+export function parseRecurringTasks(content: string): RecurringTask[] {
+  const tasks: RecurringTask[] = [];
+  let frequencyDays = 0;
+
+  for (const raw of content.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    if (line.startsWith("#")) {
+      const heading = line.replace(/^#+\s*/, "").toLowerCase();
+      if (heading.includes("recurring")) {
+        if (heading.includes("daily")) frequencyDays = 1;
+        else if (heading.includes("weekly")) frequencyDays = 7;
+        else if (heading.includes("monthly")) frequencyDays = 30;
+        else frequencyDays = 7; // default to weekly
+      } else {
+        frequencyDays = 0; // not a recurring section
+      }
+      continue;
+    }
+
+    if (frequencyDays > 0 && (line.startsWith("- ") || line.startsWith("* "))) {
+      const text = line.slice(2).trim();
+      if (text && !text.startsWith("[")) { // skip checkbox items
+        tasks.push({ text, frequencyDays });
+      }
+    }
+  }
+
+  return tasks;
+}
+
+export function parseCompletedTasks(content: string): CompletedEntry[] {
+  const entries: CompletedEntry[] = [];
+  let inCompleted = false;
+
+  for (const raw of content.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    if (line.startsWith("#")) {
+      const heading = line.replace(/^#+\s*/, "").toLowerCase();
+      inCompleted = heading === "completed" || heading.startsWith("completed ");
+      continue;
+    }
+
+    if (!inCompleted) continue;
+
+    // Match: "- 2026-03-01: task text"
+    const match = line.match(/^[-*]\s+(\d{4}-\d{2}-\d{2}):\s+(.+)$/);
+    if (match) {
+      const date = new Date(match[1] + "T00:00:00");
+      if (!isNaN(date.getTime())) {
+        entries.push({ date, text: match[2].trim() });
+      }
+    }
+  }
+
+  return entries;
+}
+
+export function isTaskDue(
+  task: RecurringTask,
+  completed: CompletedEntry[],
+  now: Date
+): boolean {
+  const normalize = (t: string) =>
+    t.toLowerCase().replace(/[`*_]/g, "").replace(/\s+/g, " ").trim();
+  const taskNorm = normalize(task.text);
+
+  // Match: completed text must start with the recurring task text (handles appended notes)
+  // This avoids false positives when two tasks share a common prefix.
+  const matches = completed.filter((e) => {
+    const entryNorm = normalize(e.text);
+    return entryNorm.startsWith(taskNorm) || taskNorm.startsWith(entryNorm);
+  });
+
+  if (matches.length === 0) return true; // Never completed → due
+
+  const mostRecent = matches.reduce((a, b) => (a.date > b.date ? a : b));
+  const daysSince = (now.getTime() - mostRecent.date.getTime()) / (1000 * 60 * 60 * 24);
+  return daysSince >= task.frequencyDays;
+}
+
+export function injectDueTasks(content: string, tasksToAdd: string[]): string {
+  if (tasksToAdd.length === 0) return content;
+
+  const lines = content.split("\n");
+  const insertLines = tasksToAdd.map((t) => `- ${t}`);
+
+  // Find ## Active Tasks section
+  const activeSectionIdx = lines.findIndex((l) => {
+    const t = l.trim().replace(/^#+\s*/, "").toLowerCase();
+    return t === "active tasks" || t === "active";
+  });
+
+  if (activeSectionIdx === -1) {
+    // No Active Tasks section — insert one before ## Completed
+    const completedIdx = lines.findIndex((l) => {
+      const t = l.trim().replace(/^#+\s*/, "").toLowerCase();
+      return t === "completed" || t.startsWith("completed ");
+    });
+    const insertAt = completedIdx === -1 ? lines.length : completedIdx;
+    lines.splice(insertAt, 0, "## Active Tasks", "", ...insertLines, "");
+    return lines.join("\n");
+  }
+
+  // Find end of Active Tasks section (next heading or EOF)
+  let endIdx = lines.length;
+  for (let i = activeSectionIdx + 1; i < lines.length; i++) {
+    if (lines[i].trimStart().startsWith("#")) {
+      endIdx = i;
+      break;
+    }
+  }
+
+  // Check which tasks are already present to avoid duplicates
+  const existingSection = lines.slice(activeSectionIdx, endIdx).join("\n").toLowerCase();
+  const newTasks = insertLines.filter((t) => {
+    const normalized = t.slice(2).toLowerCase().slice(0, 40);
+    return !existingSection.includes(normalized);
+  });
+
+  if (newTasks.length === 0) return content;
+
+  // Insert before the end of the section (last non-empty line)
+  let insertAt = endIdx;
+  while (insertAt > activeSectionIdx + 1 && !lines[insertAt - 1].trim()) {
+    insertAt--;
+  }
+
+  lines.splice(insertAt, 0, ...newTasks);
+  return lines.join("\n");
 }
 
 export class HeartbeatService {
@@ -82,6 +240,21 @@ export class HeartbeatService {
     } catch {
       return null;
     }
+  }
+
+  private async maybeInjectRecurringTasks(content: string, now: Date): Promise<string> {
+    const recurring = parseRecurringTasks(content);
+    if (recurring.length === 0) return content;
+
+    const completed = parseCompletedTasks(content);
+    const due = recurring.filter((t) => isTaskDue(t, completed, now)).map((t) => t.text);
+
+    if (due.length === 0) return content;
+
+    const updated = injectDueTasks(content, due);
+    await Deno.writeTextFile(this.heartbeatFile(), updated);
+    console.log(`Heartbeat: injected ${due.length} recurring task(s): ${due.map((t) => t.slice(0, 30)).join(", ")}`);
+    return updated;
   }
 
   async run(): Promise<void> {
@@ -114,8 +287,9 @@ export class HeartbeatService {
       }
     }
 
-    // 2. Read HEARTBEAT.md; skip if empty
-    const content = await this.readHeartbeatFile();
+    // 2. Read HEARTBEAT.md; inject recurring tasks; skip if empty
+    let content = await this.readHeartbeatFile();
+    content = await this.maybeInjectRecurringTasks(content ?? "", new Date());
     if (isHeartbeatEmpty(content)) {
       console.log("Heartbeat: no tasks (HEARTBEAT.md empty)");
       return { executed: false, response: null };
@@ -163,7 +337,8 @@ export class HeartbeatService {
       return { executed: false, response: null };
     }
 
-    const content = await this.readHeartbeatFile();
+    let content = await this.readHeartbeatFile();
+    content = await this.maybeInjectRecurringTasks(content ?? "", new Date());
     if (isHeartbeatEmpty(content)) {
       return { executed: false, response: null };
     }

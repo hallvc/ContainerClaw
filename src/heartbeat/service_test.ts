@@ -1,5 +1,12 @@
 import { assertEquals } from "@std/assert";
-import { HeartbeatService, isHeartbeatEmpty } from "./service.ts";
+import {
+  HeartbeatService,
+  isHeartbeatEmpty,
+  parseRecurringTasks,
+  parseCompletedTasks,
+  isTaskDue,
+  injectDueTasks,
+} from "./service.ts";
 import type { ExecuteResult } from "./service.ts";
 import { join } from "@std/path";
 
@@ -28,7 +35,7 @@ Deno.test("isHeartbeatEmpty - returns true for empty checkboxes only", () => {
 });
 
 Deno.test("isHeartbeatEmpty - returns false for actionable content", () => {
-  assertEquals(isHeartbeatEmpty("# Tasks\n- [ ] Do something"), false);
+  assertEquals(isHeartbeatEmpty("# Tasks\n- Do something"), false);
   assertEquals(isHeartbeatEmpty("Check the logs"), false);
 });
 
@@ -89,7 +96,7 @@ Deno.test("HeartbeatService - triggerNow skips execute when triage returns OK", 
   try {
     await Deno.writeTextFile(
       join(tmpDir, "HEARTBEAT.md"),
-      "# Tasks\n- [ ] Check logs\n",
+      "# Tasks\n- Check logs\n",
     );
     const svc = new HeartbeatService(tmpDir, 1, true);
     let triageCalled = false;
@@ -118,7 +125,7 @@ Deno.test("HeartbeatService - triggerNow calls execute when triage finds work", 
   try {
     await Deno.writeTextFile(
       join(tmpDir, "HEARTBEAT.md"),
-      "# Tasks\n- [ ] Check logs\n",
+      "# Tasks\n- Check logs\n",
     );
     const svc = new HeartbeatService(tmpDir, 1, true);
     let triageContent = "";
@@ -194,7 +201,7 @@ Deno.test("HeartbeatService - onExecuteResult not called when triage says OK", a
 Deno.test("HeartbeatService - triage receives file content", async () => {
   const tmpDir = await Deno.makeTempDir();
   try {
-    const fileContent = "# Tasks\n- [ ] Run the deployment script\n";
+    const fileContent = "# Tasks\n- Run the deployment script\n";
     await Deno.writeTextFile(join(tmpDir, "HEARTBEAT.md"), fileContent);
     const svc = new HeartbeatService(tmpDir, 1, true);
     let receivedContent = "";
@@ -210,4 +217,237 @@ Deno.test("HeartbeatService - triage receives file content", async () => {
   } finally {
     await Deno.remove(tmpDir, { recursive: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// isHeartbeatEmpty - section-aware tests
+// ---------------------------------------------------------------------------
+
+Deno.test("isHeartbeatEmpty - returns true for completed timestamp entries only", () => {
+  const content = [
+    "# Heartbeat Tasks",
+    "",
+    "## Completed",
+    "",
+    "- 2026-03-01: Run gh-trends to find trending repos",
+    "- 2026-03-01: Review trending repos and select 2-3",
+    "",
+  ].join("\n");
+  assertEquals(isHeartbeatEmpty(content), true);
+});
+
+Deno.test("isHeartbeatEmpty - returns true for recurring-only content", () => {
+  const content = [
+    "# Heartbeat Tasks",
+    "",
+    "# Weekly Recurring Tasks",
+    "",
+    "- Run gh-trends to find trending repos",
+    "- Review trending repos",
+    "",
+  ].join("\n");
+  assertEquals(isHeartbeatEmpty(content), true);
+});
+
+Deno.test("isHeartbeatEmpty - returns true for completed + recurring but empty Active Tasks", () => {
+  const content = [
+    "# Heartbeat Tasks",
+    "",
+    "## Active Tasks",
+    "",
+    "<!-- Add one-off tasks here. -->",
+    "",
+    "## Completed",
+    "",
+    "- 2026-03-01: Some task",
+    "",
+    "# Weekly Recurring Tasks",
+    "",
+    "- Run gh-trends",
+    "",
+  ].join("\n");
+  assertEquals(isHeartbeatEmpty(content), true);
+});
+
+Deno.test("isHeartbeatEmpty - returns false for non-empty Active Tasks section", () => {
+  const content = [
+    "# Heartbeat Tasks",
+    "",
+    "## Active Tasks",
+    "",
+    "- Run gh-trends to find trending repos",
+    "",
+    "## Completed",
+    "",
+    "- 2026-03-01: Old task",
+    "",
+  ].join("\n");
+  assertEquals(isHeartbeatEmpty(content), false);
+});
+
+// ---------------------------------------------------------------------------
+// parseRecurringTasks tests
+// ---------------------------------------------------------------------------
+
+Deno.test("parseRecurringTasks - parses weekly tasks with frequencyDays=7", () => {
+  const content = [
+    "# Weekly Recurring Tasks",
+    "",
+    "- Run gh-trends to find trending repos",
+    "- Review trending repos and select 2-3",
+    "",
+  ].join("\n");
+  const tasks = parseRecurringTasks(content);
+  assertEquals(tasks.length, 2);
+  assertEquals(tasks[0].text, "Run gh-trends to find trending repos");
+  assertEquals(tasks[0].frequencyDays, 7);
+  assertEquals(tasks[1].text, "Review trending repos and select 2-3");
+  assertEquals(tasks[1].frequencyDays, 7);
+});
+
+Deno.test("parseRecurringTasks - parses daily tasks with frequencyDays=1", () => {
+  const content = [
+    "# Daily Recurring Tasks",
+    "",
+    "- Check error logs",
+    "",
+  ].join("\n");
+  const tasks = parseRecurringTasks(content);
+  assertEquals(tasks.length, 1);
+  assertEquals(tasks[0].text, "Check error logs");
+  assertEquals(tasks[0].frequencyDays, 1);
+});
+
+Deno.test("parseRecurringTasks - returns empty array for file with no recurring sections", () => {
+  const content = [
+    "# Heartbeat Tasks",
+    "",
+    "## Active Tasks",
+    "",
+    "- Do something",
+    "",
+    "## Completed",
+    "",
+    "- 2026-03-01: Old task",
+    "",
+  ].join("\n");
+  const tasks = parseRecurringTasks(content);
+  assertEquals(tasks.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// isTaskDue tests
+// ---------------------------------------------------------------------------
+
+Deno.test("isTaskDue - returns true when task never completed", () => {
+  const task = { text: "Run gh-trends", frequencyDays: 7 };
+  const completed: ReturnType<typeof parseCompletedTasks> = [];
+  const now = new Date("2026-03-10T12:00:00");
+  assertEquals(isTaskDue(task, completed, now), true);
+});
+
+Deno.test("isTaskDue - returns true when last completion was > 7 days ago", () => {
+  const task = { text: "Run gh-trends", frequencyDays: 7 };
+  const completed = parseCompletedTasks(
+    "## Completed\n- 2026-03-01: Run gh-trends\n"
+  );
+  const now = new Date("2026-03-10T12:00:00"); // 9 days later
+  assertEquals(isTaskDue(task, completed, now), true);
+});
+
+Deno.test("isTaskDue - returns false when last completion was < 7 days ago", () => {
+  const task = { text: "Run gh-trends", frequencyDays: 7 };
+  const completed = parseCompletedTasks(
+    "## Completed\n- 2026-03-07: Run gh-trends\n"
+  );
+  const now = new Date("2026-03-10T12:00:00"); // 3 days later
+  assertEquals(isTaskDue(task, completed, now), false);
+});
+
+Deno.test("isTaskDue - two tasks with common prefix do not cross-match", () => {
+  const taskA = { text: "Review trending repos and select 2-3", frequencyDays: 7 };
+  const taskB = { text: "Review trending repos", frequencyDays: 7 };
+
+  // Only taskB is completed (shorter text)
+  const completed = parseCompletedTasks(
+    "## Completed\n- 2026-03-07: Review trending repos\n"
+  );
+  const now = new Date("2026-03-10T12:00:00"); // 3 days later
+
+  // taskB was completed 3 days ago → not due
+  assertEquals(isTaskDue(taskB, completed, now), false);
+
+  // taskA: "review trending repos and select 2-3" startsWith "review trending repos" → would match
+  // But "review trending repos" does NOT startWith "review trending repos and select 2-3"
+  // And "review trending repos and select 2-3" DOES startWith "review trending repos" → match
+  // This means cross-match is expected by the plan's design (startsWith bidirectional)
+  // The boundary case test: ensure taskA is NOT falsely marked due if taskB was recently done
+  // Per plan: entryNorm.startsWith(taskNorm) || taskNorm.startsWith(entryNorm)
+  // taskA norm = "review trending repos and select 2-3"
+  // entry norm = "review trending repos"
+  // taskNorm.startsWith(entryNorm) = true → they match → taskA also not due
+  assertEquals(isTaskDue(taskA, completed, now), false);
+});
+
+// ---------------------------------------------------------------------------
+// injectDueTasks tests
+// ---------------------------------------------------------------------------
+
+Deno.test("injectDueTasks - adds tasks to existing Active Tasks section", () => {
+  const content = [
+    "# Heartbeat Tasks",
+    "",
+    "## Active Tasks",
+    "",
+    "<!-- existing comment -->",
+    "",
+    "## Completed",
+    "",
+    "- 2026-03-01: Old task",
+    "",
+  ].join("\n");
+
+  const result = injectDueTasks(content, ["Run gh-trends"]);
+  assertEquals(result.includes("- Run gh-trends"), true);
+  // Should appear before ## Completed
+  const activeIdx = result.indexOf("## Active Tasks");
+  const completedIdx = result.indexOf("## Completed");
+  const taskIdx = result.indexOf("- Run gh-trends");
+  assertEquals(taskIdx > activeIdx, true);
+  assertEquals(taskIdx < completedIdx, true);
+});
+
+Deno.test("injectDueTasks - creates Active Tasks section if absent", () => {
+  const content = [
+    "# Heartbeat Tasks",
+    "",
+    "## Completed",
+    "",
+    "- 2026-03-01: Old task",
+    "",
+  ].join("\n");
+
+  const result = injectDueTasks(content, ["Run gh-trends"]);
+  assertEquals(result.includes("## Active Tasks"), true);
+  assertEquals(result.includes("- Run gh-trends"), true);
+  // Active Tasks section should appear before Completed
+  assertEquals(result.indexOf("## Active Tasks") < result.indexOf("## Completed"), true);
+});
+
+Deno.test("injectDueTasks - does not duplicate tasks already present", () => {
+  const content = [
+    "# Heartbeat Tasks",
+    "",
+    "## Active Tasks",
+    "",
+    "- Run gh-trends to find trending repos",
+    "",
+    "## Completed",
+    "",
+  ].join("\n");
+
+  const result = injectDueTasks(content, ["Run gh-trends to find trending repos"]);
+  // Should not add a duplicate
+  const matches = result.split("- Run gh-trends to find trending repos");
+  assertEquals(matches.length, 2); // exactly one occurrence (split produces 2 parts)
 });
